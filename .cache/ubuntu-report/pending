@@ -1,0 +1,68 @@
+{
+  "Version": "23.10",
+  "OEM": {
+    "Vendor": "HP",
+    "Product": "HP Pavilion Gaming Laptop 15-ec0xxx",
+    "Family": "103C_5335KV HP Pavilion"
+  },
+  "BIOS": {
+    "Vendor": "AMI",
+    "Version": "F.18"
+  },
+  "Arch": "amd64",
+  "HwCap": "x86-64-v3",
+  "GPU": [
+    {
+      "Vendor": "10de",
+      "Model": "1f91"
+    },
+    {
+      "Vendor": "1002",
+      "Model": "15d8"
+    }
+  ],
+  "RAM": 5.9,
+  "Disks": [
+    1000.2
+  ],
+  "Partitions": [
+    508.7,
+    1.1
+  ],
+  "Screens": [
+    {
+      "Size": "340mmx190mm",
+      "Resolution": "1920x1080",
+      "Frequency": "59.96"
+    }
+  ],
+  "Autologin": false,
+  "LivePatch": false,
+  "Session": {
+    "DE": "ubuntu:GNOME",
+    "Name": "ubuntu",
+    "Type": "wayland"
+  },
+  "Language": "en_US",
+  "Timezone": "Asia/Kolkata",
+  "Install": {
+    "Type": "Flutter",
+    "OEM": false,
+    "Media": "Ubuntu 23.10.1",
+    "Stages": {
+      "48": "network",
+      "59": "source",
+      "104": "storage",
+      "137": "confirm",
+      "141": "timezone",
+      "150": "identity",
+      "186": "theme",
+      "194": "install",
+      "-17801": "done"
+    },
+    "Minimal": false,
+    "RestrictedAddons": false,
+    "PartitionMethod": "resize_use_free",
+    "UseActiveDirectory": false
+  }
+}

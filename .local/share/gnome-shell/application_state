@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<application-state>
+  <context id="">
+    <application id="org.gnome.Nautilus.desktop" score="17" last-seen="1706636834"/>
+    <application id="org.gnome.Settings.desktop" score="26" last-seen="1706630040"/>
+    <application id="gnome-initial-setup.desktop" score="34" last-seen="1706616220"/>
+    <application id="org.gnome.Terminal.desktop" score="131" last-seen="1706625233"/>
+    <application id="org.gnome.eog.desktop" score="3" last-seen="1706636754"/>
+    <application id="firefox_firefox.desktop" score="675" last-seen="1706636946"/>
+    <application id="org.kde.konsole.desktop" score="908" last-seen="1706636959"/>
+    <application id="thunderbird.desktop" score="0" last-seen="1706627505"/>
+    <application id="update-manager.desktop" score="2" last-seen="1706616007"/>
+  </context>
+</application-state>
