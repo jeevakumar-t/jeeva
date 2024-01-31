@@ -12,7 +12,7 @@
 ~h
 # Command Line History (newest to oldest):
 :wq
-|2,0,1706636639,,"wq"
+|2,0,1706690116,,"wq"
 
 # Search String History (newest to oldest):
 
@@ -24,6 +24,61 @@
 
 # Registers:
 ""1	LINE	0
+	#include <stdio.h>
+	#include <stdlib.h>
+	#include <string.h>
+	
+	#define MAX_FILES 3
+	#define MAX_LINE_LENGTH 256
+	
+	void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {
+	    FILE *outputFile = fopen(outputFileName, "w");
+	    if (!outputFile) {
+	        perror("Error opening output file");
+	        exit(EXIT_FAILURE);
+	    }
+	
+	    FILE *inputFiles[MAX_FILES];
+	    for (int i = 0; i < numFiles; i++) {
+	        inputFiles[i] = fopen(inputFileNames[i], "r");
+	        if (!inputFiles[i]) {
+	            perror("Error opening input file");
+	            exit(EXIT_FAILURE);
+	        }
+	    }
+	
+	    char currentLine[MAX_LINE_LENGTH];
+	    char *lines[MAX_FILES] = {NULL};
+	
+	    // Read the initial line from each file
+	    for (int i = 0; i < numFiles; i++) {
+	        if (fgets(currentLine, sizeof(currentLine), inputFiles[i])) {
+	            lines[i] = strdup(currentLine);
+	        } else if (feof(inputFiles[i])) {
+	            // If a file is empty, set the line to NULL
+	            lines[i] = NULL;
+	        } else {
+	            perror("Error reading from input file");
+	            exit(EXIT_FAILURE);
+	        }
+	    }
+	
+	    while (1) {
+	        int smallestIndex = -1;
+	
+	        // Find the smallest line
+	        for (int i = 0; i < numFiles; i++) {
+	            if (lines[i] && (smallestIndex == -1 || strcmp(lines[i], lines[smallestIndex]) < 0)) {
+	                smallestIndex = i;
+	            }
+	        }
+	
+	        // If no lines are left, break the loop
+|3,1,1,1,50,0,1706690066,"#include <stdio.h>","#include <stdlib.h>","#include <string.h>","","#define MAX_FILES 3","#define MAX_LINE_LENGTH 256","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
+|<"    for (int i = 0; i < numFiles; i++) {","        inputFiles[i] = fopen(inputFileNames[i], \"r\");","        if (!inputFiles[i]) {","            perror(\"Error opening input file\");","            exit(EXIT_FAILURE);","        }","    }","","    char currentLine[MAX_LINE_LENGTH];","    char *lines[MAX_FILES] = {NULL};","","    // Read the initial line from each file","    for (int i = 0; i < numFiles; i++) {","        if (fgets(currentLine, sizeof(currentLine), inputFiles[i])) {",>45
+|<"            lines[i] = strdup(currentLine);","        } else if (feof(inputFiles[i])) {","            // If a file is empty, set the line to NULL","            lines[i] = NULL;","        } else {","            perror(\"Error reading from input file\");","            exit(EXIT_FAILURE);","        }","    }","","    while (1) {","        int smallestIndex = -1;","","        // Find the smallest line","        for (int i = 0; i < numFiles; i++) {",>100
+|<"            if (lines[i] && (smallestIndex == -1 || strcmp(lines[i], lines[smallestIndex]) < 0)) {","                smallestIndex = i;","            }","        }","","        // If no lines are left, break the loop"
+"2	LINE	0
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <limits.h>
@@ -74,11 +129,11 @@
 	        }
 	
 	        fprintf(outputFile, "%s", smallestLine);
-|3,1,1,1,50,0,1706635677,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","#include <string.h>","","#define MAX_FILES 3","#define MAX_LINE_LENGTH 256","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","",>34
+|3,0,2,1,50,0,1706635677,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","#include <string.h>","","#define MAX_FILES 3","#define MAX_LINE_LENGTH 256","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","",>34
 |<"    FILE *inputFiles[MAX_FILES];","    for (int i = 0; i < numFiles; i++) {","        inputFiles[i] = fopen(inputFileNames[i], \"r\");","        if (!inputFiles[i]) {","            perror(\"Error opening input file\");","            exit(EXIT_FAILURE);","        }","    }","","    char currentLine[MAX_LINE_LENGTH];","","    while (1) {","        int smallestIndex = -1;","        char smallestLine[MAX_LINE_LENGTH] = \"\";","","        for (int i = 0; i < numFiles; i++) {",>75
 |<"            if (fgets(currentLine, sizeof(currentLine), inputFiles[i])) {","                printf(\"Read line from file %d: %s\", i + 1, currentLine); // Debug print","","                if (smallestIndex == -1 || strcmp(currentLine, smallestLine) < 0) {","                    smallestIndex = i;","                    strcpy(smallestLine, currentLine);","                }","            } else if (feof(inputFiles[i])) {",>78
 |<"                printf(\"Reached end of file %d\\n\", i + 1); // Debug print","            } else {","                fprintf(stderr, \"Error reading from file %d\\n\", i + 1); // Detailed error print","            }","        }","","        if (smallestIndex == -1) {","            break;","        }","","        fprintf(outputFile, \"%s\", smallestLine);"
-"2	LINE	0
+"3	LINE	0
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <limits.h>
@@ -129,11 +184,11 @@
 	    }
 	
 	    for (int i = 0; i < numFiles; i++) {
-|3,0,2,1,50,0,1706634988,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","#include <string.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
+|3,0,3,1,50,0,1706634988,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","#include <string.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
 |<"    for (int i = 0; i < numFiles; i++) {","        inputFiles[i] = fopen(inputFileNames[i], \"r\");","        if (!inputFiles[i]) {","            perror(\"Error opening input file\");","            exit(EXIT_FAILURE);","        }","    }","","    while (1) {","        int smallestIndex = -1;","        char smallestValue[256]; // Assuming a maximum string length of 255","","        for (int i = 0; i < numFiles; i++) {",>80
 |<"            char currentValue[256]; // Assuming a maximum string length of 255","            if (fscanf(inputFiles[i], \"%255s\", currentValue) == 1) {","                printf(\"Read value from file %d: %s\\n\", i + 1, currentValue); // Debug print","                if (smallestIndex == -1 || strcmp(currentValue, smallestValue) < 0) {","                    smallestIndex = i;","                    strcpy(smallestValue, currentValue);","                }",>47
 |<"            } else if (feof(inputFiles[i])) {","                printf(\"Reached end of file %d\\n\", i + 1); // Debug print","            } else {","                fprintf(stderr, \"Error reading from file %d\\n\", i + 1); // Detailed error print","            }","        }","","        if (smallestIndex == -1) {","            break;","        }","","        fprintf(outputFile, \"%s\\n\", smallestValue);","    }","","    for (int i = 0; i < numFiles; i++) {"
-"3	LINE	0
+"4	LINE	0
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <limits.h>
@@ -184,11 +239,11 @@
 	        }
 	
 	        fprintf(outputFile, "%d\n", smallestValue);
-|3,0,3,1,50,0,1706633712,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
+|3,0,4,1,50,0,1706633712,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
 |<"    for (int i = 0; i < numFiles; i++) {","        inputFiles[i] = fopen(inputFileNames[i], \"r\");","        if (!inputFiles[i]) {","            perror(\"Error opening input file\");","            exit(EXIT_FAILURE);","        }","    }","","    while (1) {","        int smallestIndex = -1;","        int smallestValue = INT_MAX;","","        for (int i = 0; i < numFiles; i++) {","            int currentValue;","            int result = fscanf(inputFiles[i], \"%d\", &currentValue);",>2
 |<"","            if (result == 1) {","                printf(\"Read value from file %d: %d\\n\", i + 1, currentValue); // Debug print","                if (smallestIndex == -1 || currentValue < smallestValue) {","                    smallestIndex = i;","                    smallestValue = currentValue;","                }","            } else if (result == EOF) {","                printf(\"Reached end of file %d\\n\", i + 1); // Debug print",>68
 |<"                break;  // Exit the loop if end of file is reached","            } else {","                fprintf(stderr, \"Error reading from file %d. fscanf returned: %d\\n\", i + 1, result); // Detailed error print","                break;  // Exit the loop if an error occurs","            }","        }","","        if (smallestIndex == -1) {","            break;","        }","","        fprintf(outputFile, \"%d\\n\", smallestValue);"
-"4	LINE	0
+"5	LINE	0
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <limits.h>
@@ -239,11 +294,11 @@
 	        fprintf(outputFile, "%d\n", smallestValue);
 	    }
 	
-|3,0,4,1,50,0,1706633067,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
+|3,0,5,1,50,0,1706633067,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
 |<"    for (int i = 0; i < numFiles; i++) {","        inputFiles[i] = fopen(inputFileNames[i], \"r\");","        if (!inputFiles[i]) {","            perror(\"Error opening input file\");","            exit(EXIT_FAILURE);","        }","    }","","    while (1) {","        int smallestIndex = -1;","        int smallestValue = INT_MAX;","","        for (int i = 0; i < numFiles; i++) {","            int currentValue;","            int result = fscanf(inputFiles[i], \"%d\", &currentValue);",>2
 |<"","            if (result == 1) {","                printf(\"Read value from file %d: %d\\n\", i + 1, currentValue); // Debug print","                if (smallestIndex == -1 || currentValue < smallestValue) {","                    smallestIndex = i;","                    smallestValue = currentValue;","                }","            } else if (result == EOF) {","                printf(\"Reached end of file %d\\n\", i + 1); // Debug print","            } else {",>82
 |<"                printf(\"Error reading from file %d\\n\", i + 1); // Debug print","            }","        }","","        if (smallestIndex == -1) {","            break;","        }","","        fprintf(outputFile, \"%d\\n\", smallestValue);","    }",""
-"5	LINE	0
+"6	LINE	0
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <limits.h>
@@ -294,11 +349,11 @@
 	    fclose(outputFile);
 	}
 	
-|3,0,5,1,50,0,1706632889,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
+|3,0,6,1,50,0,1706632889,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    if (!outputFile) {","        perror(\"Error opening output file\");","        exit(EXIT_FAILURE);","    }","","    FILE *inputFiles[MAX_FILES];",>42
 |<"    for (int i = 0; i < numFiles; i++) {","        inputFiles[i] = fopen(inputFileNames[i], \"r\");","        if (!inputFiles[i]) {","            perror(\"Error opening input file\");","            exit(EXIT_FAILURE);","        }","    }","","    while (1) {","        int smallestIndex = -1;","        int smallestValue = INT_MAX;","","        for (int i = 0; i < numFiles; i++) {","            int currentValue;","            if (fscanf(inputFiles[i], \"%d\", &currentValue) == 1) {",>97
 |<"                printf(\"Read value from file %d: %d\\n\", i + 1, currentValue); // Debug print","                if (smallestIndex == -1 || currentValue < smallestValue) {","                    smallestIndex = i;","                    smallestValue = currentValue;","                }","            }","        }","","        if (smallestIndex == -1) {","            break;","        }","","        fprintf(outputFile, \"%d\\n\", smallestValue);","    }","",>42
 |<"    for (int i = 0; i < numFiles; i++) {","        fclose(inputFiles[i]);","    }","    fclose(outputFile);","}",""
-"6	LINE	0
+"7	LINE	0
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <limits.h>
@@ -349,11 +404,11 @@
 	}
 	
 	int main() {
-|3,0,6,1,50,0,1706632655,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3 // Change this based on the number of files you have","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    FILE *inputFiles[MAX_FILES];","","    // Open input files","    for (int i = 0; i < numFiles; i++) {",>58
+|3,0,7,1,50,0,1706632655,"#include <stdio.h>","#include <stdlib.h>","#include <limits.h>","","#define MAX_FILES 3 // Change this based on the number of files you have","","void mergeAndSortFiles(const char *outputFileName, const char *inputFileNames[], int numFiles) {","    FILE *outputFile = fopen(outputFileName, \"w\");","    FILE *inputFiles[MAX_FILES];","","    // Open input files","    for (int i = 0; i < numFiles; i++) {",>58
 |<"        inputFiles[i] = fopen(inputFileNames[i], \"r\");","        if (!inputFiles[i]) {","            perror(\"Error opening input file\");","            exit(EXIT_FAILURE);","        }","    }","","    while (1) {","    int smallestIndex = -1;","    int smallestValue = INT_MAX; // Initialize to a large value","","    for (int i = 0; i < numFiles; i++) {","        int currentValue;","        if (fscanf(inputFiles[i], \"%d\", &currentValue) == 1) {",>72
 |<"            if (smallestIndex == -1 || currentValue < smallestValue) {","                smallestIndex = i;","                smallestValue = currentValue;","            }","        }","    }","","    // If no more elements are left in any file, break the loop","    if (smallestIndex == -1) {","        break;","    }","","    // Write the smallest value to the output file","    fprintf(outputFile, \"%d\\n\", smallestValue);","    }","","    // Close files",>42
 |<"    for (int i = 0; i < numFiles; i++) {","        fclose(inputFiles[i]);","    }","    fclose(outputFile);","}","","int main() {"
-"7	LINE	0
+"8	LINE	0
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <string.h>
@@ -404,47 +459,84 @@
 	        heap[i].file = fopen(argv[i + 2], "r");
 	        if (heap[i].file == NULL) {
 	            perror("Error opening input file");
-|3,0,7,1,50,0,1706630651,"#include <stdio.h>","#include <stdlib.h>","#include <string.h>","","#define MAX_LINE_LENGTH 256","","typedef struct {","    char *line;","    FILE *file;","} LineNode;","","int compareLineNodes(const void *a, const void *b) {","    const char *lineA = ((LineNode *)a)->line;","    const char *lineB = ((LineNode *)b)->line;","","    if (lineA == NULL && lineB == NULL) {","        return 0;  ","    } else if (lineA == NULL) {",>21
+|3,0,8,1,50,0,1706630651,"#include <stdio.h>","#include <stdlib.h>","#include <string.h>","","#define MAX_LINE_LENGTH 256","","typedef struct {","    char *line;","    FILE *file;","} LineNode;","","int compareLineNodes(const void *a, const void *b) {","    const char *lineA = ((LineNode *)a)->line;","    const char *lineB = ((LineNode *)b)->line;","","    if (lineA == NULL && lineB == NULL) {","        return 0;  ","    } else if (lineA == NULL) {",>21
 |<"        return -1; ","    } else if (lineB == NULL) {","        return 1;  ","    }","","    return strcmp(lineA, lineB);","}","","int main(int argc, char *argv[]) {","    if (argc < 3) {","        fprintf(stderr, \"Usage: %s output_file input_file1 input_file2 ...\\n\", argv[0]);","        return EXIT_FAILURE;","    }","","    FILE *outputFile = fopen(argv[1], \"w\");","    if (outputFile == NULL) {","        perror(\"Error opening output file\");","        return EXIT_FAILURE;",>7
 |<"    }","","    int numFiles = argc - 2;","    LineNode *heap = malloc(numFiles * sizeof(LineNode));","    if (heap == NULL) {","        perror(\"Error allocating memory\");","        fclose(outputFile);","        return EXIT_FAILURE;","    }","","    for (int i = 0; i < numFiles; ++i) {","        heap[i].file = fopen(argv[i + 2], \"r\");","        if (heap[i].file == NULL) {","            perror(\"Error opening input file\");"
-"8	LINE	0
-	    // Clean up and close files
-|3,0,8,1,1,0,1706627051,"    // Clean up and close files"
 "9	LINE	0
-	        // Restore the heap property
-|3,0,9,1,1,0,1706627045,"        // Restore the heap property"
+	    // Clean up and close files
+|3,0,9,1,1,0,1706627051,"    // Clean up and close files"
 
 # File marks:
-'0  95  0  ~/mergesf.c
-|4,48,95,0,1706636639,"~/mergesf.c"
-'1  95  0  ~/mergesf.c
-|4,49,95,0,1706635685,"~/mergesf.c"
-'2  9  0  ~/file2.txt
-|4,50,9,0,1706635206,"~/file2.txt"
-'3  7  0  ~/file1.txt
-|4,51,7,0,1706635137,"~/file1.txt"
+'0  50  35  ~/mergesf.c
+|4,48,50,35,1706690116,"~/mergesf.c"
+'1  1  39  ~/githubpass.txt
+|4,49,1,39,1706689577,"~/githubpass.txt"
+'2  1  0  ~/mergesf.c
+|4,50,1,0,1706636639,"~/mergesf.c"
+'3  95  0  ~/mergesf.c
+|4,51,95,0,1706636639,"~/mergesf.c"
 '4  1  0  ~/mergesf.c
-|4,52,1,0,1706634995,"~/mergesf.c"
-'5  70  0  ~/mergesf.c
-|4,53,70,0,1706634995,"~/mergesf.c"
-'6  1  0  ~/mergesf.c
-|4,54,1,0,1706634995,"~/mergesf.c"
-'7  70  0  ~/mergesf.c
-|4,55,70,0,1706634995,"~/mergesf.c"
-'8  9  0  ~/file2.txt
-|4,56,9,0,1706634696,"~/file2.txt"
-'9  7  0  ~/file1.txt
-|4,57,7,0,1706634603,"~/file1.txt"
+|4,52,1,0,1706635685,"~/mergesf.c"
+'5  95  0  ~/mergesf.c
+|4,53,95,0,1706635685,"~/mergesf.c"
+'6  9  0  ~/file2.txt
+|4,54,9,0,1706635206,"~/file2.txt"
+'7  7  0  ~/file1.txt
+|4,55,7,0,1706635137,"~/file1.txt"
+'8  1  0  ~/mergesf.c
+|4,56,1,0,1706634995,"~/mergesf.c"
+'9  1  0  ~/mergesf.c
+|4,57,1,0,1706634995,"~/mergesf.c"
 
 # Jumplist (newest first):
+-'  50  35  ~/mergesf.c
+|4,39,50,35,1706690116,"~/mergesf.c"
+-'  1  0  ~/mergesf.c
+|4,39,1,0,1706690066,"~/mergesf.c"
+-'  1  39  ~/githubpass.txt
+|4,39,1,39,1706689577,"~/githubpass.txt"
+-'  1  39  ~/githubpass.txt
+|4,39,1,39,1706689577,"~/githubpass.txt"
 -'  95  0  ~/mergesf.c
 |4,39,95,0,1706636639,"~/mergesf.c"
+-'  95  0  ~/mergesf.c
+|4,39,95,0,1706636639,"~/mergesf.c"
+-'  95  0  ~/mergesf.c
+|4,39,95,0,1706635685,"~/mergesf.c"
 -'  95  0  ~/mergesf.c
 |4,39,95,0,1706635685,"~/mergesf.c"
 -'  1  0  ~/mergesf.c
 |4,39,1,0,1706635677,"~/mergesf.c"
 -'  1  0  ~/mergesf.c
 |4,39,1,0,1706635677,"~/mergesf.c"
+-'  1  0  ~/mergesf.c
+|4,39,1,0,1706635677,"~/mergesf.c"
+-'  1  0  ~/mergesf.c
+|4,39,1,0,1706635677,"~/mergesf.c"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706635206,"~/file2.txt"
 -'  9  0  ~/file2.txt
 |4,39,9,0,1706635206,"~/file2.txt"
 -'  9  0  ~/file2.txt
@@ -469,6 +561,54 @@
 |4,39,7,0,1706635137,"~/file1.txt"
 -'  7  0  ~/file1.txt
 |4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
+-'  7  0  ~/file1.txt
+|4,39,7,0,1706635137,"~/file1.txt"
 -'  70  0  ~/mergesf.c
 |4,39,70,0,1706634995,"~/mergesf.c"
 -'  70  0  ~/mergesf.c
@@ -479,6 +619,24 @@
 |4,39,70,0,1706634995,"~/mergesf.c"
 -'  70  0  ~/mergesf.c
 |4,39,70,0,1706634995,"~/mergesf.c"
+-'  70  0  ~/mergesf.c
+|4,39,70,0,1706634995,"~/mergesf.c"
+-'  70  0  ~/mergesf.c
+|4,39,70,0,1706634995,"~/mergesf.c"
+-'  70  0  ~/mergesf.c
+|4,39,70,0,1706634995,"~/mergesf.c"
+-'  70  0  ~/mergesf.c
+|4,39,70,0,1706634995,"~/mergesf.c"
+-'  70  0  ~/mergesf.c
+|4,39,70,0,1706634995,"~/mergesf.c"
+-'  1  0  ~/mergesf.c
+|4,39,1,0,1706634988,"~/mergesf.c"
+-'  1  0  ~/mergesf.c
+|4,39,1,0,1706634988,"~/mergesf.c"
+-'  1  0  ~/mergesf.c
+|4,39,1,0,1706634988,"~/mergesf.c"
+-'  1  0  ~/mergesf.c
+|4,39,1,0,1706634988,"~/mergesf.c"
 -'  1  0  ~/mergesf.c
 |4,39,1,0,1706634988,"~/mergesf.c"
 -'  1  0  ~/mergesf.c
@@ -519,132 +677,26 @@
 |4,39,9,0,1706634696,"~/file2.txt"
 -'  9  0  ~/file2.txt
 |4,39,9,0,1706634696,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  5  1  ~/file2.txt
-|4,39,5,1,1706634612,"~/file2.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  7  0  ~/file1.txt
-|4,39,7,0,1706634603,"~/file1.txt"
--'  1  18  ~/file1.txt
-|4,39,1,18,1706634516,"~/file1.txt"
--'  1  18  ~/file1.txt
-|4,39,1,18,1706634516,"~/file1.txt"
--'  1  18  ~/file1.txt
-|4,39,1,18,1706634516,"~/file1.txt"
--'  1  18  ~/file1.txt
-|4,39,1,18,1706634516,"~/file1.txt"
--'  1  18  ~/file1.txt
-|4,39,1,18,1706634516,"~/file1.txt"
--'  1  18  ~/file1.txt
-|4,39,1,18,1706634516,"~/file1.txt"
--'  1  18  ~/file1.txt
-|4,39,1,18,1706634516,"~/file1.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706634696,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706634696,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706634696,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706634696,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706634696,"~/file2.txt"
+-'  9  0  ~/file2.txt
+|4,39,9,0,1706634696,"~/file2.txt"
 
 # History of marks within files (newest to oldest):
 
 > ~/mergesf.c
-	*	1706636636	0
-	"	95	0
-	^	95	0
-	.	94	1
+	*	1706690112	0
+	"	50	35
+	^	50	36
+	.	50	36
 	+	1	19
 	+	1	0
 	+	1	49
@@ -660,7 +712,15 @@
 	+	1	1
 	+	1	0
 	+	1	18
-	+	94	1
+	+	58	1
+	+	50	36
+
+> ~/githubpass.txt
+	*	1706689572	0
+	"	1	39
+	^	1	40
+	.	1	39
+	+	1	39
 
 > ~/file2.txt
 	*	1706635202	0
@@ -735,10 +795,3 @@
 	^	12	0
 	.	12	0
 	+	12	0
-
-> ~/githubpass.txt
-	*	1706625066	0
-	"	1	39
-	^	1	40
-	.	1	39
-	+	1	39

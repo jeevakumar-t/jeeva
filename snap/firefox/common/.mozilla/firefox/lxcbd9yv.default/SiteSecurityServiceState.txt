@@ -6,7 +6,7 @@ askubuntu.com^partitionKey=%28https%2Caskubuntu.com%29	0	19752	1722174880509,1,0
 accounts.google.com^partitionKey=%28https%2Cgoogle.com%29	0	19752	1738159511685,1,1
 www.mozilla.org^partitionKey=%28https%2Cmozilla.org%29	0	19752	1738158708724,1,0
 normandy.cdn.mozilla.net	1	19753	1738158715886,1,0
-alive.github.com^partitionKey=%28https%2Cgithub.com%29	0	19752	1738160885365,1,0
+alive.github.com^partitionKey=%28https%2Cgithub.com%29	1	19753	1738160885365,1,0
 www.google.com^firstPartyDomain=google-ubuntu-sn.search.suggestions.mozilla	0	19752	1738158779547,1,0
 classify-client.services.mozilla.com	1	19753	1738158716294,1,0
 chat.openai.com^partitionKey=%28https%2Copenai.com%29	1	19753	1738159500980,1,1
@@ -20,11 +20,11 @@ wac-cdn.atlassian.com^partitionKey=%28https%2Catlassian.com%29	0	19752	176970911
 feedback-pa.clients6.google.com^partitionKey=%28https%2Cgoogle.com%29	0	19752	1717510004468,1,1
 spocs.getpocket.com	1	19753	1769694714585,1,0
 jira.atlassian.com^partitionKey=%28https%2Catlassian.com%29	0	19752	1769709120116,1,0
-api.github.com^partitionKey=%28https%2Cgithub.com%29	0	19752	1738160829993,1,1
+api.github.com^partitionKey=%28https%2Cgithub.com%29	1	19753	1738160829993,1,1
 shavar.services.mozilla.com^firstPartyDomain=safebrowsing.86868755-6b82-4842-b301-72671a0db32e.mozilla	1	19753	1738158712960,1,1
 web.whatsapp.com	0	19753	1738223651092,1,1
 graph.whatsapp.com^partitionKey=%28https%2Cwhatsapp.com%29	0	19752	1738163426962,1,1
-collector.github.com^partitionKey=%28https%2Cgithub.com%29	0	19752	2337763350204,1,0
+collector.github.com^partitionKey=%28https%2Cgithub.com%29	1	19753	2337763350204,1,0
 scone-pa.clients6.google.com^partitionKey=%28https%2Cgoogle.com%29	0	19752	1717510005383,1,1
 snapcraft.io^partitionKey=%28https%2Csnapcraft.io%29	0	19752	1722347624844,1,0
 api.atlassian.com^partitionKey=%28https%2Catlassian.com%29	0	19752	1769709119010,1,0

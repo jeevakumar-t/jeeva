@@ -49,4 +49,16 @@
       </metadata>
     </info>
   </bookmark>
+  <bookmark href="file:///home/jeeva/Pictures/Screenshots/Screenshot%20from%202024-01-31%2014-10-51.png" added="2024-01-31T08:40:51.213157Z" modified="2024-01-31T08:41:25.573502Z" visited="2024-01-31T08:40:51.213158Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="image/png"/>
+        <bookmark:applications>
+          <bookmark:application name="gnome-shell" exec="&apos;gio open %u&apos;" modified="2024-01-31T08:40:51.213158Z" count="1"/>
+          <bookmark:application name="snap.firefox" exec="&apos;gio open %u&apos;" modified="2024-01-31T08:41:25.569460Z" count="1"/>
+          <bookmark:application name="xdg-desktop-portal-gnome" exec="&apos;xdg-desktop-portal-gnome %u&apos;" modified="2024-01-31T08:41:25.573498Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
 </xbel>
