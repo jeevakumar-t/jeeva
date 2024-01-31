@@ -1,5 +1,0 @@
-{"timestamp":112108,"category":"fog.validation","name":"validate_early_event"}
-{"timestamp":116982,"category":"nimbus_events","name":"validation_failed","extra":{"experiment":"next-generation-accessibility-engine-powering-screen-readers","feature":"accessibilityCache","reason":"invalid-feature"}}
-{"timestamp":120379,"category":"nimbus_events","name":"exposure","extra":{"feature_id":"fxms-message-4","experiment":"fox-doodle-set-to-default-early-day-user-en-treatment-a-rollout","branch":"treatment-a"}}
-{"timestamp":143413,"category":"nimbus_events","name":"enrollment","extra":{"branch":"control","experiment":"mixed-content-level-2-roll-out-release-115","enrollment_id":"f73b59a5-dfe7-46b4-8306-c0691f9b2d29","experiment_type":"rollout"}}
-{"timestamp":143558,"category":"nimbus_events","name":"validation_failed","extra":{"experiment":"next-generation-accessibility-engine-powering-screen-readers","feature":"accessibilityCache","reason":"invalid-feature"}}

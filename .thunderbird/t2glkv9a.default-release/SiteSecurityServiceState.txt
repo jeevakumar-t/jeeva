@@ -1,2 +1,0 @@
-services.addons.thunderbird.net:HSTS	0	19752	1738163497248,1,0
-location.services.mozilla.com:HSTS	0	19752	1738163505460,1,1
