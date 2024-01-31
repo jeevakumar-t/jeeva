@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="chrome://browser/content/contentSearchUI.css" />
     <link rel="stylesheet" href="chrome://activity-stream/content/css/activity-stream.css" />
   </head>
-  <!-- Cached: Wed, 31 Jan 2024 08:41:02 GMT -->
+  <!-- Cached: Wed, 31 Jan 2024 08:46:03 GMT -->
   <body class="activity-stream">
     <div id="header-asrouter-container" role="presentation"></div>
     <div id="root">
@@ -113,14 +113,14 @@ window.__STARTUP_STATE__ = {
 		"rows": [
 			{
 				"isDefault": true,
-				"url": "https://s.click.aliexpress.com/e/byrlillA?af=amp1250&dp=1706687063400500001&mfadid=adm",
+				"url": "https://s.click.aliexpress.com/e/byrlillA?af=amp1250&dp=1706689263400800000&mfadid=adm",
 				"hostname": "s.click.aliexpress",
 				"sendAttributionRequest": false,
 				"label": "AliExpress",
 				"show_sponsored_label": true,
 				"sponsored_position": 1,
-				"sponsored_click_url": "https://bridge.sfo1.ap01.net/ctp?version=16.0.0&ci=1706687063344.12791&key=1706687063400500001.1&ctag=1706687063400500001",
-				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QLrfpHZ4pbW4CbWfpbX7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Z2Z4pfnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Z2Z4pfnHmcux%3DcvImauiF2zfQl%2B4QqX7ncqIr7VjGbuiF2zfCDkfCHXfQDnj9wWIBdvIpkY7R4TJr2uJREuHnEYgClnHr7wHG3vjnDuiF2zfCbYfYIWJ%3DcQIFdwJR2uiF2zfCbW4Wyy",
+				"sponsored_click_url": "https://bridge.sfo1.ap01.net/ctp?version=16.0.0&key=1706689263400800000.1&ci=1706689263772.12791&ctag=1706689263400800000",
+				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QL%2BfQHZ4pbW1pbWfpbW7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Z2Z4pfnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Z2Z4pfnHmcux%3DcvImauiF2zfQl%2B4QqX7ncqIr7VjGbuiF2zfCDkfCHXfQDnj9wWIBdvIpkY7R4TJr2uJREuHnEYgClnHr7wHG3vjnDuiF2zfCbYfYIWJ%3DcQIFdwJR2uiF2zfCbW4Wyy",
 				"sponsored_tile_id": 74343,
 				"partner": "amp",
 				"favicon": "https://contile-images.services.mozilla.com/Lbtwp8lOwiYh9vxiwPInJ_U7mlWtWHU5_yHpcziM01U.10324.jpg",
@@ -129,14 +129,14 @@ window.__STARTUP_STATE__ = {
 			},
 			{
 				"isDefault": true,
-				"url": "https://www.trivago.in/?cip=91030227040712&cip_tc=12891-101-101_amplify+privacy_1706687063400500001&cip_ext_id=1706687063400500001&mfadid=adm",
+				"url": "https://www.trivago.in/?cip=91030227040712&cip_tc=12891-101-101_amplify+privacy_1706689263400800000&cip_ext_id=1706689263400800000&mfadid=adm",
 				"hostname": "trivago",
 				"sendAttributionRequest": false,
 				"label": "Trivago",
 				"show_sponsored_label": true,
 				"sponsored_position": 2,
-				"sponsored_click_url": "https://bridge.sfo1.admarketplace.net/ctp?version=16.0.0&ci=1706687063344.12791&key=1706687063400500001.2&ctag=1706687063400500001",
-				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QLrfpHZ4pbW4CbWfpbX7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Zfd1pLnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Zfd1pLnHmcux%3DcvImauiF2zfQl%2B1pqZ7ncqIr7VjGbuiF2zfCDkfCxZfpxnj9wWIBdvIpkY7R4TJr2uJREuHnEYgC8nHr7wHG3vjnDuiF2z1pbr7ReTHF4wJFEUjtdvIpkXfpbr",
+				"sponsored_click_url": "https://bridge.sfo1.admarketplace.net/ctp?version=16.0.0&key=1706689263400800000.2&ci=1706689263772.12791&ctag=1706689263400800000",
+				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QL%2BfQHZ4pbW1pbWfpbW7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Zfd1pLnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Zfd1pLnHmcux%3DcvImauiF2zfQl%2B1pqZ7ncqIr7VjGbuiF2zfCDkfCxZfpxnj9wWIBdvIpkY7R4TJr2uJREuHnEYgC8nHr7wHG3vjnDuiF2z1pbr7ReTHF4wJFEUjtdvIpkXfpbr",
 				"sponsored_tile_id": 73588,
 				"partner": "amp",
 				"favicon": "https://contile-images.services.mozilla.com/9dW0Dtbl0CDj8Efhn2_6T-W0yRvnWgC7GLrCDwJsBjk.4704.jpg",
@@ -284,14 +284,14 @@ window.__STARTUP_STATE__ = {
 		"links": [
 			{
 				"isDefault": true,
-				"url": "https://s.click.aliexpress.com/e/byrlillA?af=amp1250&dp=1706687063400500001&mfadid=adm",
+				"url": "https://s.click.aliexpress.com/e/byrlillA?af=amp1250&dp=1706689263400800000&mfadid=adm",
 				"hostname": "s.click.aliexpress",
 				"sendAttributionRequest": false,
 				"label": "AliExpress",
 				"show_sponsored_label": true,
 				"sponsored_position": 1,
-				"sponsored_click_url": "https://bridge.sfo1.ap01.net/ctp?version=16.0.0&ci=1706687063344.12791&key=1706687063400500001.1&ctag=1706687063400500001",
-				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QLrfpHZ4pbW4CbWfpbX7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Z2Z4pfnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Z2Z4pfnHmcux%3DcvImauiF2zfQl%2B4QqX7ncqIr7VjGbuiF2zfCDkfCHXfQDnj9wWIBdvIpkY7R4TJr2uJREuHnEYgClnHr7wHG3vjnDuiF2zfCbYfYIWJ%3DcQIFdwJR2uiF2zfCbW4Wyy",
+				"sponsored_click_url": "https://bridge.sfo1.ap01.net/ctp?version=16.0.0&key=1706689263400800000.1&ci=1706689263772.12791&ctag=1706689263400800000",
+				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QL%2BfQHZ4pbW1pbWfpbW7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Z2Z4pfnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Z2Z4pfnHmcux%3DcvImauiF2zfQl%2B4QqX7ncqIr7VjGbuiF2zfCDkfCHXfQDnj9wWIBdvIpkY7R4TJr2uJREuHnEYgClnHr7wHG3vjnDuiF2zfCbYfYIWJ%3DcQIFdwJR2uiF2zfCbW4Wyy",
 				"sponsored_tile_id": 74343,
 				"partner": "amp",
 				"favicon": "https://contile-images.services.mozilla.com/Lbtwp8lOwiYh9vxiwPInJ_U7mlWtWHU5_yHpcziM01U.10324.jpg",
@@ -300,14 +300,14 @@ window.__STARTUP_STATE__ = {
 			},
 			{
 				"isDefault": true,
-				"url": "https://www.trivago.in/?cip=91030227040712&cip_tc=12891-101-101_amplify+privacy_1706687063400500001&cip_ext_id=1706687063400500001&mfadid=adm",
+				"url": "https://www.trivago.in/?cip=91030227040712&cip_tc=12891-101-101_amplify+privacy_1706689263400800000&cip_ext_id=1706689263400800000&mfadid=adm",
 				"hostname": "trivago",
 				"sendAttributionRequest": false,
 				"label": "Trivago",
 				"show_sponsored_label": true,
 				"sponsored_position": 2,
-				"sponsored_click_url": "https://bridge.sfo1.admarketplace.net/ctp?version=16.0.0&ci=1706687063344.12791&key=1706687063400500001.2&ctag=1706687063400500001",
-				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QLrfpHZ4pbW4CbWfpbX7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Zfd1pLnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Zfd1pLnHmcux%3DcvImauiF2zfQl%2B1pqZ7ncqIr7VjGbuiF2zfCDkfCxZfpxnj9wWIBdvIpkY7R4TJr2uJREuHnEYgC8nHr7wHG3vjnDuiF2z1pbr7ReTHF4wJFEUjtdvIpkXfpbr",
+				"sponsored_click_url": "https://bridge.sfo1.admarketplace.net/ctp?version=16.0.0&key=1706689263400800000.2&ci=1706689263772.12791&ctag=1706689263400800000",
+				"sponsored_impression_url": "https://imp.mt48.net/static?id=7RHzfOIXjFEYsBdvIpkX4Zbm4QL%2BfQHZ4pbW1pbWfpbW7ReNxR3UIG8zInwYIFIVs9eYiGINHrwkiFXwxYIZjF8XgClWfC2X7R4dHQ8zJnErj%3DcO7R4dHQfz4Zfd1pLnHG3Z5FwqgCfX1p8d4Cxr1BINI9HuiF2z4Zfd1pLnHmcux%3DcvImauiF2zfQl%2B1pqZ7ncqIr7VjGbuiF2zfCDkfCxZfpxnj9wWIBdvIpkY7R4TJr2uJREuHnEYgC8nHr7wHG3vjnDuiF2z1pbr7ReTHF4wJFEUjtdvIpkXfpbr",
 				"sponsored_tile_id": 73588,
 				"partner": "amp",
 				"favicon": "https://contile-images.services.mozilla.com/9dW0Dtbl0CDj8Efhn2_6T-W0yRvnWgC7GLrCDwJsBjk.4704.jpg",
@@ -1298,4 +1298,4 @@ window.__STARTUP_STATE__ = {
 	}
 };
 
-2ß¿ãŸ ¤"           eºŸF‚õ¢ÿÿÿÿ       :about:home alt-data 1;149655,script version 20230929164800  …W
+X=KQ¬oõv           eºËF‚örÿÿÿÿ       :about:home alt-data 1;149655,script version 20230929164800  …_
