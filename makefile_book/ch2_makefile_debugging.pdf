@@ -1,0 +1,1224 @@
+Search 50,000+ courses, events, titles, and more
+1. The Basics Revisited
+2. Makefile Debugging
+3. Building and Rebuilding
+3h 47m remaining
+Chapter 2. Makefile Debugging
+
+This chapter covers techniques that can be useful when debugging makefiles. The lack of built-in debugging tools, and the complexities of following variables in make, can make it very challenging to understand why a particular target was (or more often was not) built.
+
+The first recipe in this chapter shows the single most useful line that you can add to a makefile; it’s the equivalent of a print statement inserted into code for debugging.
+Printing the Value of a Makefile Variable
+
+If you’ve ever looked in a makefile, you’ll realize that makefile variables (often just called variables) form the backbone of any make process. Variables often define which files will be compiled, what command line parameters to pass to compilers, and even where to find the compiler. And if you’ve ever tried to debug a makefile, you know that the number one question you ask yourself is, “What is the value of variable X?”
+
+GNU make doesn’t have a built-in debugger, nor does it provide the sort of interactivity you’d get from a scripting language like Perl or Python. So how do you figure out the value of a variable?
+
+Take a look at the simple makefile shown in Example 2-1, which just sets various variables:
+
+Example 2-1. A simple makefile that sets various variables
+
+X=$(YS) hate $(ZS)
+Y=dog
+YS=$(Y)$(S)
+Z=cat
+ZS=$(Z)$(S)
+S=s
+
+all:
+
+What is the value of X?
+
+The small size and simplicity of this makefile make it feasible to trace through all the variable assignments, but even then it takes some work to conclude that X is dogs hate cats. In a multi-thousand-line makefile, one that fully utilizes the power of GNU make’s variables and functions, figuring out the value of a variable can be laborious indeed. Fortunately, here’s a little make recipe that does all the work for you:
+
+print-%: ; @echo $* = $($*)
+
+Now you can find the value of variable X with the following command:
+
+$ make print-X
+
+Because an explicit rule for the print-X target doesn’t exist, make looks for a pattern rule, finds print-% (the % acts as a wildcard), and runs the associated command. The command uses $*, a special variable that contains the value matched by the % in the rule, to print the name of the variable, and then does $($*) to get its value. This is a very useful technique in makefiles because it allows the name of a variable to be computed. In this case, the name of the variable to be printed comes from another variable, $*.
+
+Here’s how this rule can be used to print the values of variables defined in the makefile in Example 2-1:
+
+$ make print-X
+X = dogs hate cats
+$ make print-YS
+YS = dogs
+$ make print-S
+S = s
+
+Sometimes it’s useful to know how a variable was defined. make has the $origin function, which returns a string containing the type of a variable—that is, whether it was defined in a makefile, on the command line, or in the environment. Modifying print-% to print out origin information as well is easy:
+
+print-%: ; @echo $* = '$($*)' from $(origin $*)
+
+Now we see that YS is defined in the makefile:
+
+$ make print-YS
+YS = 'dogs' from file
+
+If we override the value of YS on the command line, we’ll see:
+
+$ make print-YS YS=fleas
+YS = 'fleas' from command line
+
+Because YS was set on the make command line, its $(origin) is now command line and no longer file.
+Dumping Every Makefile Variable
+
+The previous section showed you how to print the value of a single makefile variable using a special rule. But what if you want to print every variable defined in a makefile?
+
+Fortunately, GNU make 3.80 introduced a couple of new features that make it feasible to print the value of all the variables defined in a makefile using a single rule.
+
+Consider Example 2-1 again. It sets five variables: X, Y, Z, S, YS, and ZS. Adding the following lines to the example creates a target called printvars that will dump all the variables defined in the makefile, as shown in Example 2-2.
+
+Example 2-2. A target to print all variables
+
+.PHONY: printvars
+printvars:
+→ @$(foreach V,$(sort $(.VARIABLES)),            \
+→ $(if $(filter-out environ% default automatic,  \
+→ $(origin $V)),$(info $V=$($V) ($(value $V)))))
+
+Before we look closely at how this works, try it out on your own, as shown in Example 2-3.
+
+Example 2-3. All the variables from Example 2-1 dumped by printvars
+
+$ make printvars
+MAKEFILE_LIST= Makefile helper.mak ( Makefile helper.mak)
+MAKEFLAGS= ()
+S=s (s)
+SHELL=/bin/sh (/bin/sh)
+X=dogs hate cats ($(YS) hate $(ZS))
+Y=dog (dog)
+YS=dogs ($(Y)$(S))
+Z=cat (cat)
+ZS=cats ($(Z)$(S))
+
+Notice how make has thrown in three extra variables that weren’t explicitly defined—MAKEFILE_LIST, MAKEFLAGS, and SHELL—but the rest are all defined in the makefile. Each line shows the name of the variable, its fully substituted value, and the way in which it was defined.
+
+It’s a lot easier to understand the long complex line used to print the variables when it’s reformatted like this:
+
+   $(foreach V,$(sort $(.VARIABLES)),
+     $(if
+➊    $(filter-out environment% default automatic,$(origin $V)),
+       $(info $V=$($V) ($(value $V)))
+     )
+   )
+
+The .VARIABLES variable is a new feature in GNU make 3.80: its value is a list of the names of all the variables defined in the makefile. First, the code sorts it into order: $(sort $(.VARIABLES)). Then it goes through the sorted list, variable name by variable name, and sets V to each name in turn: $(foreach V,$(sort (.VARIABLES)),...).
+
+For each variable name, the loop decides whether to print or ignore the variable depending on how it was defined. If it’s a built-in variable, like $@ or $(CC), or came from the environment, it shouldn’t get printed. This decision is made by the predicate at ➊. It first figures out how the variable referenced by $V was defined by calling $(origin $V). This call returns a string describing how the variable was defined: environment for environment variables, file for variables defined in a makefile, and default for things the make defines. The $(filter-out) statement says if the result of $(origin) matches any of the patterns environment%, default, or automatic (automatic is returned by $(origin) for make’s automatic variable like $@, $<, and so on), then return an empty string; otherwise, leave it alone. This means $(if)’s predicate will be true only if the variable was defined in the makefile or set on the command line.
+
+If $(if)’s predicate is true, then $(info $V=$($V) ($(value $V))) outputs a message containing the name of the variable, its fully expanded value, and its defined value. The $(value) function is another new feature in GNU make 3.80; it outputs the value of a variable without expanding it. In Example 2-3, $(YS) would return the value dogs, but $(value YS) would return $(Y)$(S). That is, $(value YS) shows us how YS is defined, not its final value. That’s a very useful debugging feature.
+Tracing Variable Values
+
+As a makefile grows, it can become difficult to figure out where a variable is used. This is especially true because of GNU make’s recursive variables: the use of a variable could be hidden deep inside some other variable declaration in the makefile. This recipe shows how to trace individual variables as they are used.
+
+For this example, we’ll use the makefile in Example 2-4 (the lines have been numbered for later reference purposes).
+
+Example 2-4. Example makefile for tracing
+
+ 1 X=$(YS) hate $(ZS)
+ 2 Y=dog
+ 3 YS=$(Y)$(S)
+ 4 Z=cat
+ 5 ZS=$(Z)$(S)
+ 6 S=s
+ 7
+ 8 all: $(YS) $(ZS)
+ 9 all: ; @echo $(X)
+10
+11 $(YS): ; @echo $(Y) $(Y)
+12 $(ZS): ; @echo $(Z) $(Z)
+
+When run, this makefile prints:
+
+dog dog
+cat cat
+dogs hate cats
+
+As you can see in Example 2-4, the makefile contains a number of recursively defined variables and uses them in rule definitions and commands.
+Tracing Variable Use
+
+If you trace through Example 2-4, you’ll see that the variable $(Y) is used on lines 8, 9, and 11, and twice on line 12. It’s amazing how often variables are used! The reason is that make gets the value of a recursively expanded variable (such as YS in Example 2-4) only when it is needed (that is, when the variable is used and hence expanded), and recursively expanded variables are frequently deeply nested.
+
+It’s annoying enough to trace a variable through the simple makefile in Example 2-4, but doing so for a real makefile would be practically impossible. Fortunately, it’s possible to get make to do the work for you with the following code, which you should add to the start of the makefile to be traced (it’ll only get used when explicitly called):
+
+ifdef TRACE
+.PHONY: _trace _value
+_trace: ; @$(MAKE) --no-print-directory TRACE= \
+      $(TRACE)='$$(warning TRACE $(TRACE))$(shell $(MAKE) TRACE=$(TRACE) _value)'
+_value: ; @echo '$(value $(TRACE))'
+endif
+
+Before we dive into how it works, here’s an example of using it to trace the value of Y in our example makefile. To use the tracer, tell make to run the trace target by setting the TRACE variable to the name of the variable you want to trace. Tracing the variable Y looks like this:
+
+$ make TRACE=Y
+Makefile:8: TRACE Y
+Makefile:11: TRACE Y
+Makefile:12: TRACE Y
+Makefile:12: TRACE Y
+dog dog
+cat cat
+Makefile:9: TRACE Y
+dogs hate cats
+
+From the TRACE output you can see Y being used first on line 8 in the definition of the all target, which references Y via the $(YS); then on line 11 the definition of the cats target, which also uses $(YS); then twice on line 12 with the two direct references to $(Y); and finally on line 9 via $(X), which references $(YS), which references $(Y).
+
+Likewise, we can use the tracer to find out where $(S) is used:
+
+$ make TRACE=S
+Makefile:8: TRACE S
+Makefile:8: TRACE S
+Makefile:11: TRACE S
+Makefile:12: TRACE S
+dog dog
+cat cat
+Makefile:9: TRACE S
+Makefile:9: TRACE S
+dogs hate cats
+
+The output shows that S is first used twice on line 8 (the all target used XS and YS, which both use S). Then S appears again on line 4 (because YS is used) and line 12 (because XS is used). Finally, S is used twice on line 9, when X is echoed as X is used by XS and YS, which both use S.
+How the Variable Tracer Works
+
+GNU make has a special $(warning) function that outputs a warning message to STDERR and returns the empty string. At a high level, our tracer code changes the value of the variable to be traced to include a $(warning) message. Every time the variable is expanded, the warning is printed, and whenever make outputs a warning message, it prints the name of the makefile in use and the line number.
+
+For example, say the definition of Y is changed from
+
+Y=dog
+
+to
+
+Y=$(warning TRACE Y)dog
+
+Then, whenever $(Y) is expanded, a warning would be generated, and $(Y) would have the value dog. And because $(warning) doesn’t return any value, the value of Y is unaffected.
+
+To add this $(warning) call, the tracer code first obtains the unexpanded value of the variable to be traced, then prepends it with an appropriate $(warning), and finally runs the desired make with the specially modified value of the variable being examined. It uses the $(value) function, which as you saw in Example 2-2 enables you to get the unexpanded value of a variable.
+
+Here’s how the tracer works in detail. If TRACE is defined, make will process the block of tracer definitions. In that case, because _trace is the first target encountered, it will be the rule that runs by default. The _trace rule contains a single, complex command:
+
+@$(MAKE) --no-print-directory TRACE= \
+       $(TRACE)='$$(warning TRACE $(TRACE))$(shell $(MAKE) TRACE=$(TRACE) _value)'
+
+On the right side of the command is a $(shell) invocation that reruns the makefile with a different goal. If we are tracing YS, for example, this $(shell) runs the command:
+
+make TRACE=YS _value
+
+This will run the _value rule, which is defined like so:
+
+_value: ; @echo '$(value $(TRACE))'
+
+Because TRACE has been set to YS, this rule simply echoes the definition of YS, which is the literal string $(Y)$(S). So that’s what $(shell) ends up evaluating to.
+
+That $(shell) call is in fact inside a command line variable definition (usually called a command line override):
+
+$(TRACE)='$$(warning TRACE $(TRACE))$(shell $(MAKE)TRACE=$(TRACE) _value)'
+
+This adds the $(warning) needed to output the TRACE X messages. Notice how the name of the variable being defined is a computed value: its name is contained in $(TRACE). When tracing YS, this definition turns into:
+
+YS='$(warning TRACE YS)$(Y)$(S)'
+
+The single quotes are used to prevent the shell from seeing the $ sign. The double $ is used to prevent make from seeing the $. In either case a variable expansion would occur (either in make or by the shell), and we want to delay any variable expansion until YS is actually used.
+
+Finally, the _trace rule recursively runs make:
+
+make TRACE= YS='$(warning TRACE YS)$(Y)$(S)'
+
+The value of TRACE is reset to the empty string, because this recursive invocation of make should run the real rules rather than the tracer rules. Also, it overrides the value of YS. Recall that variables defined on the command line override definitions in the makefile: even though YS is defined in the makefile, the warning-enabled, command line definition is the one that’s used. Now, every time YS is expanded, a warning is printed.
+
+Note that this technique doesn’t work for a variable that is target specific. make allows you to define a variable as specific to a target in the manner shown in Example 2-5:
+
+Example 2-5. Defining a target-specific variable
+
+all: FOO=foo
+all: a
+all: ; @echo $(FOO)
+
+a: ; @echo $(FOO)
+
+The variable FOO will have the value foo in the rule that builds all and in any prerequisites of all. The makefile in Example 2-5 will print foo twice, because FOO is defined in both the all and a rules. The tracer is unable to obtain the value of FOO and would in fact cause this makefile to behave incorrectly.
+
+The tracer works by redefining the variable being traced as described earlier. Because this happens outside a rule definition, the tracer has no way of obtaining the value of a variable that is target specific. For example, in Example 2-5, FOO is defined only when running the all or a rules. The tracer has no way of obtaining its value. Using the tracer on that makefile to trace FOO results in the wrong behavior:
+
+$ make TRACE=FOO
+Makefile:10: TRACE FOO
+Makefile:8: TRACE FOO
+
+That should have output foo twice (once for the all rule and once for a), but the tracer has redefined FOO and messed up its value. Don’t use this tracer for target-specific variables.
+
+The $(warning) function sends its output to STDERR, which makes it possible to separate normal make output from the tracer. Simply redirect STDERR to a trace log file. Here’s an example:
+
+$ make TRACE=S 2> trace.log
+dog dog
+cat cat
+dogs hate cats
+
+This command will write normal make output to the command line while redirecting the trace output to trace.log.
+Tracing Rule Execution
+
+Until GNU make 4.0, there was no built-in way to trace the order of execution of makefile targets. GNU make 4.0 added the --trace option, which I cover in GNU make 4.0 Tracing, but if you need to use an earlier version of make, it’s handy to have another way to trace a makefile. The techniques shown here work with GNU make 4.0 and earlier.
+Note
+
+If you’ve ever stared at a cryptic log output and asked yourself, “What rule caused that output?” or “Where’s the output for the foo rule?” then this section is for you. And to be honest, who hasn’t wondered what GNU make’s log file output means?
+An Example
+
+This section uses the following example makefile:
+
+.PHONY: all
+all: foo.o bar
+
+bar: ; @touch $@
+
+It builds two files: foo.o and bar. We’ll assume that foo.c exists so that make’s built-in rules create foo.o; whereas bar is a simple rule that just touches $@. If you run make for the first time with this makefile, you’d see the following output:
+
+$ make
+cc -c -o foo.o foo.c
+
+This log output is rather cryptic. There’s no sign of the rule for bar being run (because touch $@ was hidden using the @ modifier, which prevents the command from being printed). And there’s no indication that it was the rule for foo.o that generated the cc compilation line. Nor is there any indication that the all rule was used.
+
+You could, of course, use make -n (which just prints the commands to be run without actually executing them) to look at the work that GNU make would perform:
+
+$ make -n
+cc -c -o foo.o foo.c
+touch bar
+
+In this case it’s practical, but in general make -n’s output can be just as cryptic as a normal log file, and it doesn’t provide any way of matching lines in the log with lines in the makefile.
+The SHELL Hack
+
+One simple way to enhance the output of GNU make is to redefine SHELL, which is a built-in variable that contains the name of the shell to use when make executes commands. Most shells have an -x option that causes them to print each command they are about to execute; therefore, if you modify SHELL in a makefile by appending -x, it will cause every command to be printed as the makefile is run.
+
+Here’s the example makefile modified using GNU make’s += operator to append -x to SHELL:
+
+SHELL += -x
+
+.PHONY: all
+all: foo.o bar
+
+bar: ; @touch $@
+
+In some shells this may not work (the shell may expect a single word of options). In GNU make 4.0 and later, a variable called .SHELLFLAGS contains the flags for the shell and can be set to avoid this problem instead of altering SHELL.
+
+Now the makefile output reveals that touch bar was generated by the rule for bar:
+
+$ make
+cc -c -o foo.o foo.c
++ cc -c -o foo.o foo.c
++ touch bar
+
+The SHELL technique has one disadvantage: it slows make down. If SHELL is left untouched, make will often avoid using the shell altogether if it knows it can execute the command directly—for simple operations like compilation and linking, for example. But once SHELL is redefined in a makefile, make will always use the shell, thus slowing it down.
+
+Of course, that doesn’t make this a bad debugging trick: getting additional information for a brief slowdown is a very small price to pay. But redefining SHELL doesn’t help track the relationship between the lines in a log file and the makefile. Fortunately, this is possible to do with an even smarter redefinition of SHELL.
+An Even Smarter SHELL Hack
+
+If SHELL has been redefined, make will expand its value before it runs each line of each rule. This means that if the expansion of SHELL were to output information, it would be possible to print information before each rule runs.
+
+As you saw in Tracing Variable Values, the $(warning) function helpfully outputs a string of your choosing, along with the name of the makefile and the line number at which the $(warning) was written. By adding a $(warning) call to SHELL, it’s possible to print detailed information every time SHELL gets expanded. The following code snippet does just this:
+
+OLD_SHELL := $(SHELL)
+SHELL = $(warning Building $@)$(OLD_SHELL)
+
+.PHONY: all
+all: foo.o bar
+
+bar: ; @touch $@
+
+The first line captures the normal value of SHELL in a variable called OLD_SHELL. Notice the use of := to get SHELL’s final value, not its definition. The second line defines SHELL to include the old shell value and a $(warning) that will print the name of the target being built.
+
+Running GNU make now produces very useful information:
+
+$ make
+make: Building foo.o
+cc -c -o foo.o foo.c
+Makefile:7: Building bar
+
+The first line of output is produced when the built-in pattern rule to build foo.o is about to be executed. Because no makefile or line number information gets printed, we know that a built-in rule was used here. Then you see the actual output of the built-in rule (the cc command). This is followed by another piece of output from the $(warning), stating that bar is about to be built using the rule in the makefile at line 7.
+
+We used $@ in the $(warning) statement that we added to SHELL, but there’s nothing stopping us from using other automatic variables. For example, in Example 2-6, we use $<, which holds the first prerequisite from which the target is being built, and $?, which holds the list of prerequisites that are newer than the target and tells us why the target is being built.
+
+Example 2-6. Using the SHELL hack
+
+OLD_SHELL := $(SHELL)
+SHELL = $(warning Building $@$(if $<, (from $<))$(if $?, ($? newer)))$(OLD_SHELL)
+
+.PHONY: all
+all: foo.o bar
+
+bar: ; touch $@
+
+Here SHELL has been redefined to output three pieces of information: the name of the target being built ($@), the name of the first prerequisite ($<, which is wrapped in a $(if) so that nothing is printed if there is no prerequisite), and the names of any newer prerequisites ($?).
+
+Deleting foo.o and running make on this makefile now shows that foo.o was built from foo.c because foo.c was newer than foo.o (because it was missing):
+
+$ make
+make: Building foo.o (from foo.c) (foo.c newer)
+cc -c -o foo.o foo.c
+Makefile:7: Building bar
+
+There’s nothing to stop us from combining this $(warning) trick with -x to get output showing which rules ran and what commands were executed, as shown in Example 2-7.
+
+Example 2-7. Combining the $(warning) trick with -x
+
+OLD_SHELL := $(SHELL)
+SHELL = $(warning Building $@$(if $<, (from $<))$(if $?, ($? newer)))$(OLD_SHELL) -x
+
+.PHONY: all
+all: foo.o bar
+
+bar: ; @touch $@
+
+Here’s the full output of the makefile in Example 2-7.
+
+$ make
+make: Building foo.o (from foo.c) (foo.c newer)
+cc -c -o foo.o foo.c
++ cc -c -o foo.o foo.c
+Makefile:7: Building bar
++ touch bar
+
+This assumes that foo.c was newer than foo.o (or foo.o was missing) when make was run.
+GNU make 4.0 Tracing
+
+GNU make 4.0 added a --trace command line option that you can use to trace rule execution. It provides output similar to that of Example 2-7. Here’s what happens when Example 2-6, minus the SHELL modifications, is traced using GNU make 4.0:
+
+$ make --trace
+<builtin>: update target 'foo.o' due to: foo.c
+cc    -c -o foo.o foo.c
+Makefile:4: target 'bar' does not exist
+touch bar
+
+When called with the --trace option, GNU make 4.0 overrides the @ modifier (used in the earlier example to suppress touch bar) in the same way that the -n and --just-print flags do.
+Makefile Assertions
+
+Most programming languages have assertions: statements that do nothing if the value they assert is true but cause a fatal error if not. They’re commonly used as a runtime debugging aid to catch very odd situations. A typical assert in C might look like assert( foo != bar ) and would result in a fatal error if foo and bar are the same.
+
+Unfortunately, GNU make does not have any form of built-in assertions. But they are easy to create from existing functions, and there are even convenient assertion functions defined in the GNU Make Standard Library (GMSL).
+
+The GMSL project (which is covered in Chapter 6) provides two assertion functions: assert and assert_exists.
+assert
+
+The assert function will output a fatal error if its first argument is false. As with make’s $(if) function, GMSL treats any non-empty string as true and an empty string as false. Thus, if assert’s argument is an empty string, the assertion will cause a fatal error; the second argument to assert will be printed as part of the error. For example, this makefile breaks immediately because $(FOO) and $(BAR) are the same:
+
+include gmsl
+
+FOO := foo
+BAR := foo
+
+$(call assert,$(call sne,$(FOO),$(BAR)),FOO and BAR should not be equal)
+
+Because assert is not a built-in function—it’s user defined in the GMSL makefile—we must use $(call).
+
+We get the message:
+
+Makefile:5: *** GNU Make Standard Library: Assertion failure: FOO and BAR should
+not be equal. Stop.
+
+The assertion uses another GMSL function, sne, which compares two strings and returns true if they are not equal or false otherwise.
+
+Because true simply means not an empty string, it’s easy to assert that a variable be defined:
+
+include gmsl
+
+$(call assert,$(FOO),FOO is not defined)
+
+You can use this assertion, for example, to check that a user has set all necessary command line variables; if FOO is required for the makefile to run properly but the user forgot to set it on the command line, the assertion will cause an error.
+
+You can even use assertions to enforce that certain command line flags are not used. Here’s an example that prevents the user from setting -i, the ignore errors flag:
+
+include gmsl
+
+$(foreach o,$(MAKEFLAGS),$(call assert,$(call sne,-i,$o),You can't use the -i option))
+
+ifneq ($(patsubst -%,-,$(firstword $(MAKEFLAGS))),-)
+$(call assert,$(call sne,$(patsubst i%,i,$(patsubst %i,i,$(firstword \
+$(MAKEFLAGS)))),i),You can't use the -i option)
+endif
+
+This example is more complex than the previous two because make can store the -i flag in MAKEFLAGS in two ways: as a flag in the familiar form -i or as a block of single characters in the first word of MAKEFLAGS. That is, setting the command line flags -i -k results in MAKEFLAGS having the value ki. So the first assert in the loop looks for -i, and the second assert searches for i in the first word of MAKEFLAGS.
+assert_exists
+
+Because the success of a build relies on having all necessary files present, the GMSL provides an assertion specifically designed to warn if a file is missing. The assert_exists function has a single argument: the name of the file that must exist. For example, to check that the file foo.txt exists before any commands are run by the makefile, you can add an assertion at the start:
+
+include gmsl
+
+$(call assert_exists,foo.txt)
+
+If the file does not exist, the build stops:
+
+Makefile:3: *** GNU Make Standard Library: Assertion failure: file 'foo.txt'
+missing. Stop.
+
+The assertion stopped the build and the line on which the assertion is found in the makefile—in this case, 3—is shown.
+assert_target_directory
+
+A common problem in building real-world makefiles is that you must construct directory hierarchies during or before the build. You can ensure that every directory exists before each rule runs by creating a special assert_target_directory variable, as shown in Example 2-8.
+
+Example 2-8. Creating an assert_target_directory variable
+
+include gmsl
+
+assert_target_directory = $(call assert,$(wildcard $(dir $@)),Target directory $(dir $@) missing)
+
+foo/all: ; @$(call assert_target_directory)echo $@
+
+By inserting $(call assert_target_directory) at the start of each rule or pattern rule’s recipe, make automatically checks that the directory in which the target is to be written exists. For example, if foo/ does not exist, the makefile in Example 2-8 results in the following error:
+
+Makefile:6: *** GNU Make Standard Library: Assertion failure: Target directory
+foo/ missing. Stop.
+
+The error gives the name of the makefile and the line number at which the problem occurred, making it trivial to find the problem.
+
+For a final trick, it’s possible to use a two-line modification to cause the makefile to check every rule for a missing directory. Instead of adding $(call assert_target_directory) to every rule, just redefine the SHELL variable to include $(call assert_target_directory). This does slow performance but can be useful in tracking down a missing directory somewhere deep in nested makefiles:
+
+include gmsl
+
+assert_target_directory = $(call assert,$(wildcard $(dir $@)),Target directory $(dir $@) missing)
+
+OLD_SHELL := $(SHELL)
+SHELL = $(call assert_target_directory)$(OLD_SHELL)
+
+foo/all: ; @echo $@
+
+make expands the value of SHELL and hence performs a call to assert_target_directory for every rule that is run. This simple change means that every rule checks that the target directory exists.
+
+The new value of SHELL consists of a call to assert_target_directory, which always returns an empty string, followed by the old value of SHELL, which had been stored in OLD_SHELL. Note how OLD_SHELL is defined using := so that SHELL doesn’t refer to itself—OLD_SHELL contains the value of SHELL at runtime and can be safely used to redefine SHELL. If OLD_SHELL were defined using =, make would fail to run because of a circular reference: SHELL would refer to OLD_SHELL, which in turn would refer to SHELL, and so on.
+
+The assert_target_directory function works by calling the built-in $(wildcard) function with the name of the directory where the current target being built should be written. The $(wildcard) function simply checks to see whether the directory exists and returns the name of the directory if so or the empty string if the directory is missing. The target is defined by the automatic variable $@, and the directory portion is extracted with $(dir).
+An Interactive GNU make Debugger
+
+Despite GNU make’s popularity, debugging facilities are few and far between. GNU make has a -d option that outputs extensive (but not necessarily useful) debugging information about a build, and a -p option that prints GNU make’s internal database of rules and variables. This section shows how to build an interactive debugger for GNU make using only GNU make’s internal functions and the shell read command.
+
+The debugger has breakpoints, dumps information about the rule at which a breakpoint is hit, and allows interactive querying of variable values and definitions.
+The Debugger in Action
+
+Before you see how the debugger works, let’s look at how to use it. The debugger and these examples all assume that you are using GNU make 3.80 or later. Example 2-9 shows an example makefile that builds all from the prerequisites foo and bar.
+
+Example 2-9. Setting a breakpoint using the __BREAKPOINT variable
+
+MYVAR1 = hello
+MYVAR2 = $(MYVAR1) everyone
+all: MYVAR3 = $(MYVAR2)
+all: foo bar
+→ $(__BREAKPOINT)
+→ @echo Finally making $@
+foo bar:
+→ @echo Building $@
+
+To illustrate the use of the debugger, a breakpoint is set in the all rule by inserting a line at the start of the rule’s recipe that consists of just the variable __BREAKPOINT. $(__BREAKPOINT) gets expanded when the rule runs, causing the debugger to break execution and prompt when the all rule is about to run, as shown in Example 2-9.
+
+Here’s what happens when this makefile is executed with no existing files called all, foo, or bar:
+
+$ make
+Building foo
+Building bar
+Makefile:51: GNU Make Debugger Break
+Makefile:51: - Building 'all' from 'foo bar'
+Makefile:51: - First prerequisite is 'foo'
+Makefile:51: - Prerequisites 'foo bar' are newer than 'all'
+1>
+
+First, you see the output from the execution of the rules for foo and bar (the Building foo and Building bar lines), and then there’s a break into the debugger. The debugger break shows the line at which the break occurred and in which makefile. In this case, the breakpoint occurred at line 51 of the makefile. (It’s line 51 because what’s not shown in Example 2-9 is all the actual GNU make variables that make the debugger work.)
+
+The debugger also outputs information about the rule being built. Here you can see that all is built from foo and bar and that the first prerequisite is foo. That’s important because it’s the first prerequisite that is stored in GNU make’s $< automatic variable. ($< is typically used as the source code filename for compilation.) The debugger also shows why the all rule ran: foo and bar are both newer than all (because they were both just built by their respective rules).
+
+Finally, the debugger prompts 1> for a command. The debugger will accept 32 commands before automatically continuing execution of the makefile. The number 1 indicates that this is the first command; once 32> is reached, the debugger will continue automatically. The first thing to do is ask for help by typing h:
+
+1< h
+Makefile:51: c       continue
+Makefile:51: q       quit
+Makefile:51: v VAR   print value of $(VAR)
+Makefile:51: o VAR   print origin of $(VAR)
+Makefile:51: d VAR   print definition of $(VAR)
+2>
+
+The debugger provides two means of stopping debugging: typing c continues with normal execution of the makefile; typing q quits make. The three debugger commands v, o, and d allow the user to interrogate GNU make variables by asking for the value of a variable, its origin (where it was defined), or its definition. For example, the makefile in Example 2-9 contains two variables—MYVAR1 and MYVAR2—and a variable that is specific to the all rule: MYVAR3. A first step is to ask the debugger for the values of each of these variables:
+
+2> v MYVAR1
+Makefile:55: MYVAR1 has value 'hello'
+3> v MYVAR2
+Makefile:55: MYVAR2 has value 'hello everyone'
+4> v MYVAR3
+Makefile:55: MYVAR3 has value 'hello everyone'
+5>
+
+If it wasn’t clear how MYVAR3 got its value, you could ask the debugger for its definition:
+
+5> d MYVAR3
+Makefile:55: MYVAR3 is defined as '$(MYVAR2)'
+6>
+
+This shows that MYVAR3 is defined as $(MYVAR2). And so the obvious next step is to find out how MYVAR2 is defined (and also MYVAR1):
+
+6> d MYVAR2
+Makefile:55: MYVAR2 is defined as '$(MYVAR1) everyone' 7
+> d MYVAR1
+Makefile:55: MYVAR1 is defined as 'hello'
+8>
+
+And if it wasn’t clear where MYVAR1 got its value, the o command will show its origin:
+
+8> o MYVAR1
+Makefile:55: MYVAR1 came from file
+9>
+
+This means that MYVAR1 is defined in a makefile. In contrast:
+
+$ make MYVAR1=Hello
+1> v MYVAR1
+Makefile:55: MYVAR1 has value 'Hello'
+2> o MYVAR1
+Makefile:55: MYVAR1 came from command line
+3>
+
+If the user has overridden the value of MYVAR1 on the command line (by running, say, make MYVAR1=Hello), the o command reflects that.
+Breakpoints in Patterns
+
+As well as setting breakpoints in normal rules, you can also set them in patterns. Every time that pattern rule is used, the breakpoint is hit. For example:
+
+all: foo.x bar.x
+
+%.x: FOO = foo
+%.x: %.y
+→ $(__BREAKPOINT)
+→ @echo Building $@ from $<...
+
+foo.y:
+bar.y:
+
+Here, all is built from foo.x and bar.x, which requires building them from foo.y and bar.y using the %.x: %.y rule. A breakpoint is inserted in the pattern rule, and the debugger breaks twice: once for foo.x and once for bar.x:
+
+$ make
+Makefile:66: GNU Make Debugger Break
+Makefile:66: - Building 'foo.x' from 'foo.y'
+Makefile:66: - First prerequisite is 'foo.y'
+Makefile:66: - Prerequisites 'foo.y' are newer than 'foo.x'
+1> c
+Building foo.x from foo.y...
+Makefile:66: GNU Make Debugger Break
+Makefile:66: - Building 'bar.x' from 'bar.y'
+Makefile:66: - First prerequisite is 'bar.y'
+Makefile:66: - Prerequisites 'bar.y' are newer than 'bar.x'
+1> c
+Building bar.x from bar.y...
+
+Even pattern-specific variables work:
+
+$ make
+Makefile:67: GNU Make Debugger Break
+Makefile:67: - Building 'foo.x' from 'foo.y'
+Makefile:67: - First prerequisite is 'foo.y'
+Makefile:67: - Prerequisites 'foo.y' are newer than 'foo.x'
+1> v FOO
+Makefile:67: FOO has value 'foo'
+2>
+
+%.x has a pattern-specific variable FOO with the value foo; the debugger v command can access it during a breakpoint on the pattern rule.
+Breakpoints in Makefiles
+
+Additionally, you can simply insert a breakpoint in a makefile if needed. Parsing of makefiles will pause at the breakpoint so you can examine the current state of variables in the makefile. For example, with a breakpoint after each definition of FOO in this makefile, you can see its value change:
+
+FOO = foo
+$(__BREAKPOINT)
+FOO = bar
+$(__BREAKPOINT)
+
+Here’s a sample run:
+
+$ make
+Makefile:76: GNU Make Debugger Break
+1> v FOO
+Makefile:76: FOO has value 'foo'
+2> c
+Makefile:78: GNU Make Debugger Break
+1> v FOO
+Makefile:78: FOO has value 'bar'
+2>
+
+The two separate breakpoints are activated (one after each time FOO is set). Using the debugger’s v command shows how the value of FOO changes at each breakpoint.
+Debugger Internals
+
+The debugger draws on functions defined in the GMSL (you can read more about the GMSL in Chapter 6). The first line of the debugger includes the GMSL functions:
+
+include gmsl
+
+__LOOP := 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32
+
+The debugger uses the __PROMPT variable to output the n> and read in a command followed by a single argument. __PROMPT uses the read shell command to get the command and argument into shell variables $CMD and $ARG and then returns a list of two elements: the first element is the command and the second is the argument. Expanding __PROMPT prompts for and returns a single command and argument pair:
+
+__PROMPT = $(shell read -p "$(__HISTORY)> " CMD ARG ; echo $$CMD $$ARG)
+
+You use the __BREAK variable to get and handle a single command. First, it stores the result of __PROMPT in __INPUT, and then it calls the __DEBUG function (which handles debugger commands) with two arguments: the command and its argument returned by __PROMPT in __INPUT.
+
+__BREAK = $(eval __INPUT := $(__PROMPT))       \
+          $(call __DEBUG,                      \
+              $(word 1,$(__INPUT)),            \
+              $(word 2,$(__INPUT)))
+
+The __DEBUG function handles the core of the debugger. __DEBUG takes a single character command in $1, its first argument, and an optional argument to the command in $2. $1 is stored in the variable __c and $2 in __a. Then __DEBUG examines __c to see whether it is one of the supported debugger commands (c, q, v, d, o, or h); if not, a call to $(warning) will output an error message.
+
+__DEBUG consists of a set of nested $(if) statements that use the GMSL seq function to determine if the __c is a valid debugger command. If it is, $(if)’s first argument is expanded; if not, the next $(if) is examined. For example, the v command (which outputs the value of a variable) is handled like this:
+
+$(if $(call seq,$(__c),v),$(warning $(__a) has value '$($(__a))'), ... next if ... )
+
+If the __c command is v, then $(warning) is used to output the value of the variable named by __a (the $($(__a)) outputs the value of the variable whose name is stored in __a).
+
+When __DEBUG is done, it returns either $(true) or $(false) (the empty string). $(true) indicates that the debugger should stop prompting for commands and continue execution (the q command is handled by calling GNU make’s $(error) function to cause a fatal error, which stops make):
+
+__DEBUG = $(eval __c = $(strip $1))                      \
+          $(eval __a = $(strip $2))                      \
+          $(if $(call seq,$(__c),c),                     \
+           $(true),                                      \
+           $(if $(call seq,$(__c),q),                    \
+            $(error Debugger terminated build),          \
+            $(if $(call seq,$(__c),v),                   \
+             $(warning $(__a) has value '$($(__a))'),    \
+             $(if $(call seq,$(__c),d),                  \
+     $(warning $(__a) is defined as '$(value $(__a))'),  \
+               $(if $(call seq,$(__c),o),                \
+     $(warning $(__a) came from $(origin $(__a))),       \
+                $(if $(call seq,$(__c),h),               \
+                 $(warning c       continue)             \
+                 $(warning q       quit)                 \
+             $(warning v VAR print value of $$(VAR))     \
+             $(warning o VAR print origin of $$(VAR))    \
+        $(warning d VAR print definition of $$(VAR)),    \
+        $(warning Unknown command '$(__c)')))))))
+
+Finally, we come to the definition of __BREAKPOINT (the breakpoint variable we used in Example 2-9). It first outputs a banner containing information (you’ll see what __BANNER does in a moment); then it loops asking for commands by calling __BREAK. The loop terminates either if it runs out of items in __LOOP (which is where the 32-command limit is defined) or if a call to __BREAK returns $(true):
+
+__BREAKPOINT = $(__BANNER)                              \
+               $(eval __TERMINATE := $(false))          \
+               $(foreach __HISTORY,                     \
+                   $(__LOOP),                           \
+                   $(if $(__TERMINATE),,                \
+                      $(eval __TERMINATE := $(__BREAK))))
+
+__BANNER shows that the debugger has stopped at a breakpoint, and by examining GNU make automatic variables, it is able to give information about the current rule being built:
+
+__BANNER = $(warning GNU Make Debugger Break)           \
+           $(if $^,                                     \
+              $(warning - Building '$@' from '$^'),     \
+              $(warning - Building '$@'))               \
+       $(if $<,$(warning - First prerequisite is '$<')) \
+           $(if $%,$(warning - Archive target is '$%')) \
+           $(if $?,$(warning - Prerequisites '$?' are newer than '$@'))
+
+Here’s the complete debugger code:
+
+__LOOP := 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32
+
+__PROMPT = $(shell read -p "$(__HISTORY)> " CMD ARG ; echo $$CMD $$ARG)
+
+__DEBUG = $(eval __c = $(strip $1))                     \
+          $(eval __a = $(strip $2))                     \
+          $(if $(call seq,$(__c),c),                    \
+           $(true),                                     \
+           $(if $(call seq,$(__c),q),                   \
+            $(error Debugger terminated build),         \
+            $(if $(call seq,$(__c),v),                  \
+             $(warning $(__a) has value '$($(__a))'),   \
+             $(if $(call seq,$(__c),d),                 \
+     $(warning $(__a) is defined as '$(value $(__a))'), \
+               $(if $(call seq,$(__c),o),               \
+     $(warning $(__a) came from $(origin $(__a))),      \
+               $(if $(call seq,$(__c),h),               \
+                $(warning c       continue)             \
+                $(warning q       quit)                 \
+             $(warning v VAR print value of $$(VAR))    \
+             $(warning o VAR print origin of $$(VAR))   \
+        $(warning d VAR print definition of $$(VAR)),   \
+        $(warning Unknown command '$(__c)')))))))
+
+__BREAK = $(eval __INPUT := $(__PROMPT))                \
+          $(call __DEBUG,                               \
+              $(word 1,$(__INPUT)),                     \
+              $(word 2,$(__INPUT)))
+
+__BANNER = $(warning GNU Make Debugger Break)           \
+           $(if $^,                                     \
+              $(warning - Building '$@' from '$^'),     \
+              $(warning - Building '$@'))               \
+       $(if $<,$(warning - First prerequisite is '$<')) \
+           $(if $%,$(warning - Archive target is '$%')) \
+           $(if $?,$(warning - Prerequisites '$?' are newer than '$@'))
+__BREAKPOINT = $(__BANNER)                              \
+               $(eval __TERMINATE := $(false))          \
+               $(foreach __HISTORY,                     \
+               $(__LOOP),                               \
+               $(if $(__TERMINATE),,                    \
+                  $(eval __TERMINATE := $(__BREAK))))
+
+For the most up-to-date version, visit the GNU make Debugger open source project at http://gmd.sf.net/.
+Dynamic Breakpoints in the GNU make Debugger
+
+The preceding section showed how to build a debugger for GNU make entirely in GNU make. But it had only static (hardcoded) breakpoints. This section shows you how to enhance the debugger by adding dynamic breakpoints. That makes it possible to set and remove breakpoints on the name of a file (in GNU make language, a target) that the makefile will build.
+
+It’s no longer necessary to insert the $(__BREAKPOINT) string in a makefile. Typing a simple set breakpoint command has the same effect. And another keystroke lists all breakpoints currently in effect.
+
+This section shows the use of the new breakpoints and how they are coded. The new code is written entirely in GNU make’s variable language and uses the GMSL set functions (detailed in Chapter 6) to maintain the list of current breakpoints.
+
+Getting the breakpoints to activate requires a little GNU make magic, but first let’s look at an example.
+Dynamic Breakpoints in Action
+
+Before you see how the debugger works, let’s look at how to use it. The debugger and these examples all assume that you are using GNU make 3.80 or later.
+
+Here’s an example makefile that builds all from prerequisites foo and bar.
+
+include gmd
+
+MYVAR1 = hello
+MYVAR2 = $(MYVAR1) everyone
+
+all: MYVAR3 = $(MYVAR2)
+all: foo bar
+all: ; @echo Finally making $@
+foo bar: ; @echo Building $@
+
+$(__BREAKPOINT)
+
+To illustrate the use of the debugger, a breakpoint is set in the makefile by inserting a line at the end of the makefile that consists of just the variable $(__BREAKPOINT). $(__BREAKPOINT) will get expanded when the makefile finishes being parsed, causing the debugger to break execution before any rules are run and prompt for input. (The debugger is included here with the include gmd command at the start. You can get the GMD files from the GMD website at http://gmd.sf.net/; it’s all open source code.)
+
+Here’s what happens when this makefile is executed with no existing files called all, foo, or bar.
+
+$ make
+Makefile:11: GNU Make Debugger Break
+1> h
+Makefile:11: c:     continue
+Makefile:11: q:     quit
+Makefile:11: v VAR: print value of $(VAR)
+Makefile:11: o VAR: print origin of $(VAR)
+Makefile:11: d VAR: print definition of $(VAR)
+Makefile:11: b TAR: set a breakpoint on target TAR
+Makefile:11: r TAR: unset breakpoint on target TAR
+Makefile:11: l: list all target breakpoints
+2>
+
+The debugger immediately breaks and waits for input. The first thing to do is type h to see the help text and the three new commands: b (to set a breakpoint), r (to remove a breakpoint), and l (to list current breakpoints).
+
+Then set two breakpoints in the makefile: one when foo gets built and one for all. (If you look back at The Debugger in Action, you’ll see that you can also achieve this by modifying the makefile, but these new breakpoints can be set dynamically at runtime.)
+
+After setting the breakpoints, use the l command to verify that they are set:
+
+2> b foo
+Makefile:11: Breakpoint set on `foo'
+3> b all
+Makefile:11: Breakpoint set on `all'
+4> l
+Makefile:11: Current target breakpoints: `all' `foo'
+5>
+
+Continuing execution by entering c causes the foo breakpoint to be hit immediately. foo is the first target that the makefile will build (followed by bar and finally all). The breakpoint indicates that the rule for foo is at line 9:
+
+5> c
+Makefile:9: GNU Make Debugger Break
+Makefile:9: - Building 'foo'
+1>
+
+Continuing on, first the output (generated when bar is created) appears, and then the all breakpoint is hit.
+
+1> c
+Building foo
+Building bar
+Makefile:7: GNU Make Debugger Break
+Makefile:7: - Building 'all' from 'foo bar'
+Makefile:7: - First prerequisite is 'foo'
+Makefile:7: - Prerequisites 'foo bar' are newer than 'all'
+1>
+
+The all breakpoint prints out much more information than foo because all has prerequisites.
+The Easy Part
+
+To add the breakpoint functions to the GNU make debugger, the debugger code that handles the keyboard was first altered to recognize the b, r, and l commands and call user-defined GNU make functions __BP_SET, __BP_UNSET, and __BP_LIST.
+
+The targets for which breakpoints are defined are simply a GMSL set of target names. Initially, there are no breakpoints and so the set, called __BREAKPOINTS, is empty:
+
+__BREAKPOINTS := $(empty_set)
+
+Setting and removing breakpoints is a matter of calling the GMSL functions set_insert and set_remove to add or remove an element from __BREAKPOINTS:
+
+__BP_SET = $(eval __BREAKPOINTS := $(call set_insert,$1,$(__BREAKPOINTS))) \
+          $(warning Breakpoint set on `$1')
+
+__BP_UNSET = $(if $(call set_is_member,$1,$(__BREAKPOINTS)),               \
+        $(eval __BREAKPOINTS := $(call set_remove,$1,$(__BREAKPOINTS)))    \
+        $(warning Breakpoint on `$1' removed),                             \
+        $(warning Breakpoint on `$1' not found))
+
+Both functions use the GNU make $(eval) function to change the value of __BREAKPOINTS. $(eval FOO) evaluates its argument FOO as if it were a piece of text during parsing of the makefile: this means that at runtime you can change variable values or define new rules.
+
+__BP_UNSET used the GMSL function set_is_member to determine whether the breakpoint being removed was actually defined and output a helpful message in the case that the user tries to remove a nonexistent breakpoint (which may be caused by a typing error on their part).
+
+Listing the current breakpoints is simply a matter of outputting the contents of the set stored in __BREAKPOINTS. Because that set is just a list with no duplicates, __BP_LIST feeds its value into the GNU make functions $(addprefix) and $(addsuffix) to put quotation marks around the target names:
+
+__BP_LIST = $(if $(__BREAKPOINTS),                      \
+             $(warning Current target breakpoints:      \
+       $(addsuffix ',$(addprefix `,$(__BREAKPOINTS)))), \
+             $(warning No target breakpoints set))
+
+__BP_LIST uses the GNU make $(if) function to choose between listing the breakpoints if there are any or saying No target breakpoints set if the __BREAKPOINTS set is empty. $(if) will evaluate its second argument if $(__BREAKPOINTS) is a non-empty string and evaluate its third argument if there are no breakpoints.
+The Trick
+
+To get GNU make to break into the debugger, it has to expand the __BREAKPOINT variable, which outputs information about the breakpoint and prompts for commands. But for that to happen, we need a way to check which breakpoints are defined every time a rule is about to run. If we can engineer that, then make can expand $(__BREAKPOINT) if necessary, causing make to stop at the breakpoint.
+
+Fortunately, it’s possible to cause make to expand __BREAKPOINT by modifying the built-in SHELL variable.
+
+The SHELL variable is also expanded every time a command is about to run inside a rule. That makes it ideal for checking breakpoints. Here’s the actual code in the GNU make debugger that uses SHELL for breakpoint handling:
+
+__BP_OLD_SHELL := $(SHELL)
+__BP_NEW_SHELL = $(if $(call seq,$(__BP_FLAG),$@), \
+                 $(call $1,),                      \
+                 $(__BP_CHECK))$(__BP_OLD_SHELL)
+SHELL = $(call __BP_NEW_SHELL,$1)
+
+First, the real value of SHELL is stored in __BP_OLD_SHELL (note that the GNU make := operator is used to capture the value, not the definition, of SHELL). Then SHELL is redefined to call the __BP_NEW_SHELL variable.
+
+__BP_NEW_SHELL is where the interesting work is done. The last part of it is $(__BP_OLD_SHELL), which is the value of the original SHELL variable. After all, once it’s done checking breakpoints, GNU make needs to use the original shell to actually run commands. Before that there’s a rather complex $(if). Concentrate for a moment on the call to $(__BP_CHECK). That’s the variable that will actually check to see whether the breakpoint should be executed. It’s defined like this:
+
+__BP_CHECK = $(if $(call set_is_member,$@,        \
+              $(__BREAKPOINTS)),                  \
+              $(eval __BP_FLAG := $@)             \
+              $(eval __IGNORE := $(call SHELL,    \
+                                 __BREAKPOINT)))
+__BP_FLAG :=
+
+__BP_CHECK checks to see whether the current target being built (stored in the standard GNU make automatic variable $@) is present in the list of breakpoints. It does this using the GMSL function set_is_member. If the target is present, it does two things: it sets an internal variable called __BP_FLAG to be the target for which the breakpoint has activated and then proceeds to $(call) a variable and throw away the result by storing it in a variable called __IGNORE. That’s done so that __BP_CHECK’s return value will always be empty; it’s used, after all, in the definition of SHELL, which ultimately needs to be just the name of the shell to execute.
+
+Experienced GNU make users will be scratching their heads wondering about the odd syntax $(call SHELL,__BREAKPOINT). That’s where some GNU make rocket science comes in.
+Rocket Science
+
+Instead of writing $(call SHELL,__BREAKPOINT), it’s tempting to write $(__BREAKPOINT) to get the breakpoint to activate. But that doesn’t work.
+
+Doing so would cause a fatal GNU make error. Follow the chain of variables up from __BP_CHECK, and it becomes clear that it’s been expanded because SHELL was being expanded (because a rule was about to run). Follow into __BREAKPOINT, and there’s a nasty surprise: a call to $(shell) (this can be seen in the GMD code in Addition and Subtraction or in the preceding section), which will cause SHELL to be expanded.
+
+Danger, Will Robinson! SHELL is defined in terms of SHELL, which causes GNU make to spot the recursion and give up. The $(call SHELL,__BREAKPOINT) syntax lets us play with fire. Any time a variable is $(call)ed in GNU make, the flag used to check for recursion is disabled. So doing $(call SHELL,__BREAKPOINT) means that the recursion flag on SHELL is turned off (avoiding the error) and the definition of SHELL calls __BP_NEW_SHELL with one argument. The argument is the word __BREAKPOINT. __BP_NEW_SHELL checks to see whether __BP_FLAG is set to the same value as $@ (which it does using the GMSL seq function) and then proceeds to $(call) its first argument (which is __BREAKPOINT); the breakpoint fires and the prompt appears.
+
+It might seem that some horrible infinite recursion will occur when the $(shell) gets executed and SHELL is expanded again. Two things prevent that: __BP_FLAG is still the same as $@ (so __BP_CHECK is not called again), and this time SHELL has no argument (the value in $1 is empty), so the $(call $1,) does nothing and recursion stops.
+An Introduction to remake
+
+The remake project (http://bashdb.sourceforge.net/remake/) is a fork of GNU make that integrates a complete debugger created by modifying the GNU make source code. remake forked from GNU make 3.82 and is currently at version 3.82+dbg-0.9.
+Just Print and Trace
+
+To illustrate the operation of remake, let’s use Example 2-10, a sample makefile:
+
+Example 2-10. A simple makefile to illustrate remake
+
+.PHONY: all
+all: foo bar baz
+
+foo: bar
+→ @touch $@
+bar:
+→ @touch $@
+
+baz: bam
+→ @touch $@
+
+bam:
+→ @touch $@
+
+Running the standard GNU make -n (or --just-print) option against this makefile produces the following output:
+
+$ make -n
+touch bar
+touch foo
+touch bam
+touch baz
+
+But remake provides a makefile and line number information for each rule. The information shows the target (the value of $@) and the commands to be run:
+
+$ remake -n
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:8: bar
+touch bar
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:5: foo
+touch foo
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:14: bam
+touch bam
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:11: baz
+touch baz
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+Of course, you have to run any real makefile to understand its execution. remake provides a handy tracing option, -x, which runs the makefile while outputting information about why targets are being built and showing the commands executed and their output:
+
+$ remake -x
+Reading makefiles...
+Updating goal targets....
+Makefile:2  File `all' does not exist.
+  Makefile:4 File `foo' does not exist.
+    Makefile:7 File `bar' does not exist.
+    Makefile:7 Must remake target `bar'.
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:8: bar
+touch bar
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++ touch bar
+   Makefile:7 Successfully remade target file `bar'.
+ Makefile:4 Must remake target `foo'.
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:5: foo
+touch foo
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++ touch foo
+ Makefile:4 Successfully remade target file `foo'.
+  Makefile:10 File `baz' does not exist.
+    Makefile:13 File `bam' does not exist.
+   Makefile:13 Must remake target `bam'.
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:14: bam
+touch bam
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++ touch bam
+   Makefile:13 Successfully remade target file `bam'.
+ Makefile:10 Must remake target `baz'.
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:11: baz
+touch baz
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++ touch baz
+
+Makefile:10 Successfully remade target file `baz'.
+Makefile:2 Must remake target `all'. Is a phony target.
+Makefile:2 Successfully remade target file `all'.
+
+The trace option really comes into its own when an error occurs. Here’s the output when a nonexistent option -z is added to the touch in the commands for target bar:
+
+$ remake -x
+Reading makefiles...
+Updating goal targets....
+Makefile:2 File `all' does not exist.
+  Makefile:4 File `foo' does not exist.
+    Makefile:7 File `bar' does not exist.
+   Makefile:7 Must remake target `bar'.
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+Makefile:8: bar
+touch -z bar
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
++ touch -z bar
+touch: invalid option -- 'z'
+Try `touch --help' for more information.
+Makefile:8: *** [bar] Error 1
+
+#0 bar at Makefile:8
+#1 foo at Makefile:4
+#2 all at Makefile:2
+Command-line arguments:
+       "-x"
+
+Right at the bottom of that output is the call stack of targets that were dependent on bar building successfully, plus, of course, the error generated by touch, the actual command that was executed, and where to find it in the makefile.
+Debugging
+
+Because remake contains an interactive debugger, you can use it to debug the touch problem. Run remake with the -X option (uppercase X for the debugger; lowercase x for tracing), and the debugger breaks at the first target to be built:
+
+$ remake -X
+GNU Make 3.82+dbg0.9
+Built for x86_64-unknown-linux-gnu
+Copyright (C) 2010 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Reading makefiles...
+Updating makefiles....
+Updating goal targets....
+  Makefile:2 File `all' does not exist.
+-> (Makefile:4)
+foo: bar
+remake<0>
+
+So the first break is at line 2 of the makefile and shows that the first target is all (and the complete prerequisite list is shown). Entering h gives complete help information:
+
+remake<0> h
+  Command                Short Name  Aliases
+  ---------------------- ----------  ---------
+  break [TARGET|LINENUM] [all|run|prereq|end]* (b) L
+  cd DIR                          (C)
+  comment TEXT                    (#)
+  continue [TARGET [all|run|prereq|end]*] (c)
+  delete breakpoint numbers..     (d)
+  down [AMOUNT]                   (D)
+  edit                            (e)
+  eval STRING                     (E)
+  expand STRING                   (x)
+  finish [AMOUNT]                 (F)
+  frame N                         (f)
+  help [COMMAND]                  (h) ?, ??
+  info [SUBCOMMAND]               (i)
+  list [TARGET|LINE-NUMBER]       (l)
+  next [AMOUNT]                   (n)
+  print {VARIABLE [attrs...]}     (p)
+  pwd                             (P)
+  quit [exit-status]              (q) exit, return
+  run [ARGS]                      (R) restart
+  set OPTION {on|off|toggle}
+  set variable VARIABLE VALUE     (=)
+  setq VARIABLE VALUE             (")
+  shell STRING                    (!) !!
+  show [SUBCOMMAND]               (S)
+  source FILENAME                 (<)
+  skip                            (k)
+  step [AMOUNT]                   (s)
+  target [TARGET-NAME] [info1 [info2...]] (t)
+  up [AMOUNT]                     (u)
+  where                           (T) backtrace, bt
+  write [TARGET [FILENAME]]       (w)
+
+Because the touch problem occurs later in the make execution (in the bar rule), just continue by single stepping with s:
+
+remake<1> s
+    Makefile:4 File `foo' does not exist.
+-> (Makefile:7)
+bar:
+remake<2> s
+      Makefile:7 File `bar' does not exist.
+      Makefile:7 Must remake target `bar'.
+Invoking recipe from Makefile:8 to update target `bar'.
+##>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+touch -z bar
+##<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+++ (Makefile:7)
+bar
+remake<3> s
+touch: invalid option -- 'z'
+Try 'touch --help' for more information.
+Makefile:7: *** [bar] Error 1
+
+#0 bar at Makefile:7
+#1 foo at Makefile:4
+#2 all at Makefile:2
+
+***Entering debugger because we encountered a fatal error.
+** Exiting the debugger will exit make with exit code 1.
+!! (Makefile:7)
+bar
+remake<4>
+
+While in the debugger, you can fix the error in the makefile and then enter R to restart the build:
+
+remake<4> R
+Changing directory to /home/jgc and restarting...
+GNU Make 3.82+dbg0.9
+Built for x86_64-unknown-linux-gnu
+Copyright (C) 2010 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Reading makefiles...
+Updating makefiles....
+Updating goal targets....
+  Makefile:2 File `all' does not exist.
+-> (Makefile:4)
+foo: bar
+remake<0> c
+
+Now things work correctly.
+Targets, Macro Values, and Expansion
+
+When stopped in the debugger, it’s possible to interrogate information about targets in the makefile, such as variable values (expanded and unexpanded) and commands. For example, in Example 2-10, when stopped at a breakpoint, you can find all the information remake has about the all target by using the target command:
+
+$ remake -X
+GNU Make 3.82+dbg0.9
+Built for x86_64-unknown-linux-gnu
+Copyright (C) 2010 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Reading makefiles...
+Updating makefiles....
+Updating goal targets....
+  /home/jgc/src/thirdparty/remake-3.82+dbg0.9/Makefile:2 File `all' does not exist.
+-> (/home/jgc/src/thirdparty/remake-3.82+dbg0.9/Makefile:4)
+foo: bar
+remake<0> target all
+all: foo bar baz
+# Phony target (prerequisite of .PHONY).
+# Implicit rule search has not been done.
+# Implicit/static pattern stem: `'
+# File does not exist.
+# File has not been updated.
+# Commands not yet started.
+# automatic
+# @ := all
+# automatic
+# % :=
+# automatic
+# * :=
+# automatic
+# + := foo bar baz
+# automatic
+# | :=
+# automatic
+# < := all
+# automatic
+# ^ := foo bar baz
+# automatic
+# ? :=
+remake<1>
+
+remake shows that all is a phony target and dumps information about the automatic variables that will be set for this rule. There’s no restriction on asking about the current target:
+
+remake<1> target foo
+foo: bar
+#  Implicit rule search has not been done.
+#  Implicit/static pattern stem: `'
+#  File does not exist.
+#  File has not been updated.
+#  Commands not yet started.
+#  automatic
+# @ := foo
+# automatic
+# % :=
+# automatic
+# * :=
+# automatic
+# + := bar
+# automatic
+# | :=
+# automatic
+# < := bar
+# automatic
+# ^ := bar
+# automatic
+# ? :=
+#  commands to execute (from `Makefile', line 5):
+    @touch $@
+
+remake<2>
+
+Because target foo has commands, they are listed at the bottom (along with where to find them in which makefile). To see the expanded form of the commands, use the expand modifier of the target command:
+
+remake<2> target foo expand
+foo:
+#  commands to execute (from `Makefile', line 5):
+   @touch foo
+
+remake<3>
+
+To get information about a variable, we use the handy print and expand commands: print gives the definition of a variable, and expand gives its post-expansion value. Here’s how to find out the definition of the built-in COMPILE.c variable (which contains the command used to compile .c files):
+
+remake<4> print COMPILE.c
+(origin default) COMPILE.c = $(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
+
+To see the expanded value, expand it:
+
+remake<7> expand COMPILE.c
+(origin default) COMPILE.c := cc -c
+
+remake can also set variable values using set (which expands a string and sets the variable to that value) and setq (which sets the variable to a string without expansion). For example, changing CC from cc to gcc changes the C compiler make will use:
+
+remake<7> expand COMPILE.c
+(origin default) COMPILE.c := cc    -c
+remake<8> print CC
+(origin default) CC = cc
+remake<9> setq CC gcc
+Variable CC now has value 'gcc'
+remake<10> print CC
+(origin debugger) CC = gcc
+remake<11> expand COMPILE.c
+(origin default) COMPILE.c := gcc   -c
+remake<12>
+
+remake is a very useful tool to add to your make toolkit. You don’t need to use it every day, but switching from make to remake when you have a knotty problem to solve is hassle-free if you are not using any features added in GNU make 4.0.

@@ -1,0 +1,1438 @@
+Search 50,000+ courses, events, titles, and more
+5. Pushing the Envelope
+6. The GNU Make Standard Library
+A. Updates
+6m remaining
+Chapter 6. The GNU Make Standard Library
+
+The GNU Make Standard Library (GMSL) is a SourceForge-hosted, open source project that I started to capture common functions that makefile authors end up writing over and over again. To prevent makefile writers from reinventing the wheel, the GMSL implements common functions, such as reversing lists, uppercasing a string, or mapping a function across every element of a list.
+
+The GMSL has list and string manipulation functions, a complete integer arithmetic library, and functions for data structures. Also included are GNU make implementations of associative arrays, sets, and stacks, as well as built-in debugging facilities.
+
+In this chapter, you’ll learn how to use the functions of the GMSL in realistic makefiles. In addition, you’ll see a complete reference for the different categories of GMSL functions. For the latest revision of the GMSL, visit http://gmsl.sf.net/.
+Importing the GMSL
+
+The GMSL is implemented as a pair of makefiles named gmsl and __gmsl. __gmsl is imported by gmsl, so to include the GMSL in your makefile, just add this:
+
+include gmsl
+
+You can do this in as many files as you want. To prevent multiple definitions and unintended error messages, the GMSL automatically detects if it has already been included.
+
+Of course, GNU make must be able to find gmsl and __gmsl. To do that, GNU make looks for makefiles in a number of places by default, including /usr/local/include, /usr/gnu/include/, /usr/include, the current directory, and any directories specified by the GNU make -I (or --include-dirL) command line option.
+
+A good place to put gmsl and __gmsl is /usr/local/include, where they’ll be available to all your makefiles.
+
+If GNU make can’t find gmsl or __gmsl, you’ll get the regular GNU make error message:
+
+Makefile:1: gmsl: No such file or directory
+
+The GMSL uses a little trick to make the location of gmsl completely flexible. Because gmsl uses include to find __gmsl, the gmsl makefile needs to know where to find __gmsl.
+
+Let’s suppose that gmsl was stored in /foo and included with include /foo/gmsl. To make this work without having to modify gmsl to hardcode the location of __gmsl, gmsl figures out where it’s located using MAKEFILE_LIST and then prepends the appropriate path to the include __gmsl:
+
+# Try to determine where this file is located. If the caller did
+# include /foo/gmsl then extract the /foo/ so that __gmsl gets
+# included transparently
+
+__gmsl_root := $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+
+# If there are any spaces in the path in __gmsl_root then give up
+
+ifeq (1,$(words $(__gmsl_root)))
+__gmsl_root := $(patsubst %gmsl,%,$(__gmsl_root))
+else
+__gmsl_root :=
+endif
+
+include $(__gmsl_root)__gmsl
+
+That’s a handy technique if you want your makefiles to be location independent.
+Calling a GMSL Function
+
+The functions in the GMSL are implemented as normal GNU make function declarations. For example, the function last (which returns the last element of a list) is declared like this:
+
+last = $(if $1,$(word $(words $1),$1))
+
+The function is called using GNU make’s built-in $(call). For example, to return the last element of the list 1 2 3, do this:
+
+$(call last,1 2 3)
+
+This will return 3. $(call) expands the variable named in its first argument (in this case, last), setting special local variables ($1, $2, $3, . . .)to the arguments given to $(call) after the function name. So $1 is 1 2 3 in this case.
+
+The GMSL defines the Boolean values true and false, which are just variables and can be accessed using $() or ${}: for example, $(true) or ${false}. false is an empty string, and true is the letter T; these definitions correspond to GNU make’s notion of true (a non-empty string) and false (an empty string). You can use true and false in GNU make’s $(if) function or within a preprocessor ifeq:
+
+$(if $(true),It's true!,Totally false)
+
+ifeq ($(true),$(true))
+--snip--
+endif
+
+These examples are contrived. You’d expect the $(true) in the $(if) and the first $(true) in the ifeq to be the return values from a function call, not a constant value.
+Checking the GMSL Version
+
+The GMSL includes a function that you can use to check that the version included is compatible with your use of the GMSL. The function gmsl_compatible checks that the version number of the included GMSL is greater than or equal to the version number passed as an argument.
+
+At the time of this writing, the current GMSL version is v1.1.7. To check that the included GMSL is at least, say, v1.1.2, call gmsl_compatible with a list argument containing three elements: 1 1 2.
+
+$(call gmsl_compatible,1 1 2)
+
+This will return $(true) because the current GMSL is v1.1.7, which is greater than v1.1.2. If we asked for v2.0.0, we’d get the response $(false):
+
+$(call gmsl_compatible,2 0 0)
+
+A simple way to make sure that you are using the right version of GMSL is to wrap the call to gmsl_compatible in an assertion:
+
+$(call assert,$(call gmsl_compatible,1 0 0),Wrong GMSL version)
+
+This will stop the make process with an error if an incompatible version of GMSL is found.
+Example Real-World GMSL Use
+
+Now that you’re set up with the GMSL, let’s look at some examples. All of these solve problems that real-world makefiles have to deal with, like caseinsensitive comparisons and searching a path for a file.
+Case-Insensitive Comparison
+
+GMSL contains two functions that let you create a simple function to do a case-insensitive comparison of two strings:
+
+ifcase = $(call seq,$(call lc,$1),$(call lc,$2))
+
+This works by lowercasing its two arguments (using the GMSL lc function) and then calling seq (the GMSL string equality function) to see if they are the same. Here’s one way to use ifcase:
+
+CPPFLAGS += $(if $(call ifcase,$(DEBUG),yes),-DDEBUG,)
+
+Here it’s used to see if the DEBUG variable has been set to yes; if it has, -DDEBUG is added to CPPFLAGS.
+Finding a Program on the Path
+
+Here’s a function definition that will search the PATH for an executable:
+
+findpath = $(call first,$(call map,wildcard,$(call addsuffix,/$1,$(call split,:,$(PATH)))))
+
+For example, $(call findpath,cat) will search the PATH for the first cat program. It uses three functions from the GMSL: first, map, and split. It uses two built-in functions: wildcard and addsuffix.
+
+The call to split breaks the PATH variable into a list, separating it at colons. Then the built-in addsuffix function is called, which adds /$1 to each element of the PATH. $1 contains the parameter to findpath, which is the name of the program we’re searching for (in this case, it was cat).
+
+Then the GMSL map function is called to perform a built-in wildcard on each possible program filename. With no wildcard characters in the filename, wildcard will return the name of the file if it exists or an empty string. So map has the effect of finding the location (or locations) of cat on the PATH by testing each file in turn.
+
+Finally, a call to the GMSL function first returns the first element of the list that map returns (the list of all cat programs on the PATH).
+
+A debugging feature of GMSL is the ability to trace calls to GMSL functions. By setting GMSL_TRACE to 1, GMSL will output each call to a GMSL function with its parameters. For example:
+
+Makefile:8: split(':', '/home/jgc/bin:/usr/local/bin:/usr/bin:/usr/X11R6/bin:/
+bin:/usr/games:/opt/gnome/bin:/opt/kde3/bin:/usr/lib/java/jre/bin')
+Makefile:8: map('wildcard',' /home/jgc/bin/make /usr/local/bin/make /usr/bin/
+make /usr/X11R6/bin/make /bin/make /usr/games/make /opt/gnome/bin/make /opt/
+kde3/bin/make /usr/lib/java/jre/bin/make')
+Makefile:8: first(' /usr/bin/make')
+
+Here we’re searching for cat using the findpath function with tracing turned on.
+Using Assertions to Check Inputs
+
+Typically, a makefile is executed specifying a goal for the build (or under the assumption that there’s an all target or similar at the start of the makefile). In addition, there are typically environment variables (like debug options, architecture settings, and so on) that affect the build. A quick way to check that these have been set correctly is to use GMSL assertion functions.
+
+Here’s an example that checks that DEBUG has been set to yes or no, that ARCH contains the word Linux, that we’ve specified an output directory in the OUTDIR variable, and that that directory exists:
+
+$(call assert,$(OUTDIR),Must set OUTDIR)
+$(call assert_exists,$(OUTDIR),Must set OUTDIR)
+$(call assert,$(if $(call seq,$(DEBUG),yes),$(true),$(call seq,$(DEBUG),no)),DEBUG must be yes or no)
+$(call assert,$(call findstring,Linux,$(ARCH)),ARCH must be Linux)
+
+The assertion functions will generate a fatal error if their first argument is $(false) (that is, an empty string).
+
+The first assert checks that $(OUTDIR) has been set to something. If it has a non-empty value, the assertion passed; otherwise, an error is generated:
+
+Makefile:3: *** GNU Make Standard Library: Assertion failure: Must set OUTDIR.
+Stop.
+
+The second assertion is of the form assert_exists, which checks to see whether its first argument exists in the file system. In this case, it checks to see whether the directory pointed to by $(OUTDIR) exists. It doesn’t check to see whether it’s a directory. We can add another assertion to do that, like this:
+
+$(call assert,$(wildcard $(OUTDIR)/.),OUTDIR must be a directory)
+
+This looks to see if $(OUTDIR) contains a dot (.). If not, $(OUTDIR) is not a directory, and the call to wildcard will return an empty string, causing the assertion to fail.
+
+The third assertion checks that DEBUG is either yes or no using the GMSL seq function to check the value. Finally, we assert using findstring that $(ARCH) must contain the word Linux (with the L capitalized).
+Is DEBUG Set to Y?
+
+The GMSL has the logical operators and, or, xor, nand, nor, xnor, and not that work with GNU make’s concept of truth values and the GMSL variables $(true) and $(false).
+
+You can use GNU make’s (and GMSL’s) Boolean values with both GMSL functions and GNU make’s built-in $(if). The GMSL logical operators were designed for use with $(if) and the GNU make preprocessor ifeq directive.
+
+Imagine that a makefile has a debug option, enabled by setting the DEBUG environment variable to Y. Using the GMSL function seq (string equal) and the or operator, you can easily determine whether debugging is desired or not:
+
+include gmsl
+
+debug_needed := $(call or,$(call seq,$(DEBUG),Y),$(call seq,$(DEBUG),y))
+
+Because the GMSL has a lowercase function (lc), you can write this example without the or:
+
+include gmsl
+
+debug_needed := $(call seq,$(call lc,$(DEBUG)),y)
+
+But the logical operator or lets us be even more generous and accept YES as well as Y for the debug option:
+
+include gmsl
+
+debug_needed := $(call or,$(call seq,$(call lc,$(DEBUG)),y),$(call seq,$(call lc,$(DEBUG)),yes))
+
+The function debug_needed is case insensitive too.
+Is DEBUG Set to Y or N?
+
+Another possible use of the logical operators is to force the user of the makefile to set DEBUG to either Y or N, thus avoiding problems if they forget about the debug option. The GMSL assertion function assert will output a fatal error if its argument is not true. So we can use it to assert that DEBUG must be Y or N:
+
+include gmsl
+
+$(call assert,$(call or,$(call seq,$(DEBUG),Y),$(call seq,$(DEBUG),N)),DEBUG must be Y or N)
+
+Here’s an example:
+
+$ make DEBUG=Oui
+Makefile:1: *** GNU Make Standard Library: Assertion failure: DEBUG must be Y or N.
+Stop.
+
+The assertion generates this error if the user makes the mistake of setting DEBUG to Oui.
+Using Logical Operators in the Preprocessor
+
+Because GNU make’s preprocessor (which has ifeq, ifneq, and ifdef directives) doesn’t have any logical operations, it’s difficult to write a complex statement. For example, to define a section of a makefile if DEBUG is set to Y or Yes in GNU make, you must either duplicate a section of code (yuck!) or write a statement that’s hard to understand:
+
+ifeq ($(DEBUG),$(filter $(DEBUG),Y Yes))
+--snip--
+endif
+
+This works by filtering the list Y Yes with the value of $(DEBUG), which returns an empty list if $(DEBUG) is not Y or Yes, or returns the value of $(DEBUG) if it is. The ifeq then compares the resulting value with $(DEBUG). That’s pretty ugly, hard to maintain, and contains a subtle bug. (What happens if $(DEBUG) is empty? Hint: empty is the same as Y or Yes.) Fixing the bug means doing something like this:
+
+ifeq (x$(DEBUG)x,$(filter x$(DEBUG)x,xYx xYesx))
+--snip--
+endif
+
+The GMSL or operator makes this much clearer:
+
+include gmsl
+
+ifeq ($(true),$(call or,$(call seq,$(DEBUG),Y),$(call seq,$(DEBUG),Yes)))
+--snip--
+endif
+
+This is much more maintainable. It works by oring two calls to seq and comparing the result with $(true).
+Removing Duplicates from a List
+
+The GMSL function uniq removes duplicates from a list. GNU make has a built-in sort function that sorts a list and removes duplicates; uniq removes duplicates without sorting the list (which can be handy if list order is important).
+
+For example, $(sort c b a a c) will return a b c, whereas $(call uniq,c b a a c) returns c b a.
+
+Say you need to simplify the PATH variable by removing duplicate entries while preserving the order. The PATH is typically a colon-separated list of paths (like /usr/bin:/bin:/usr/local/bin:/bin). Here simple-path is the PATH with duplicates removed and order preserved:
+
+include gmsl
+
+simple-path := $(call merge,:,$(call uniq,$(call split,:,$(PATH))))
+
+This uses three GMSL functions: uniq, split (which splits a string into a list at a certain separator character; in this case, a colon), and merge (which merges a list into a string separating list entries with a character; in this case, a colon).
+Automatically Incrementing a Version Number
+
+When it’s release time for a piece of software, it’s handy to have a way to increment the version number automatically. Suppose that a project contains a file called version.c that contains the current version number as a string:
+
+char * ver = "1.0.0";
+
+It would be ideal to just type make major-release, make minor-release, or make dot-release and have one of the three parts of the version number automatically update and the version.c file change.
+
+Here’s how to do that:
+
+   VERSION_C := version.c
+   VERSION := $(shell cat $(VERSION_C))
+
+   space :=
+   space +=
+
+   PARTS := $(call split,",$(subst $(space),,$(VERSION)))
+
+   VERSION_NUMBER := $(call split,.,$(word 2,$(PARTS)))
+   MAJOR := $(word 1,$(VERSION_NUMBER))
+   MINOR := $(word 2,$(VERSION_NUMBER))
+   DOT := $(word 3,$(VERSION_NUMBER))
+   major-release minor-release dot-release:
+➊ → @$(eval increment_name := $(call uc,$(subst -release,,$@)))
+➋ → @$(eval $(increment_name) := $(call inc,$($(increment_name))))
+➌ → @echo 'char * ver = "$(MAJOR).$(MINOR).$(DOT)";' > $(VERSION_C)
+
+The VERSION variable contains the contents of the version.c file, which will be something like char * ver = "1.0.0";. The PARTS variable is a list created by first removing all the whitespace from VERSION and then splitting on the double quotes. That splits VERSION into the list char*ver= 1.0.0 ;.
+
+So PARTS is a list with three elements, and the second element is the current version number, which is extracted into VERSION_NUMBER and turned into a list of three elements: 1 0 0.
+
+Next, variables called MAJOR, MINOR, and DOT are extracted from VERSION_NUMBER. If the version number in version.c was 1.2.3, then MAJOR will be 1, MINOR will be 2, and DOT will be 3.
+
+Finally, three rules are defined for major, minor, and dot releases. These use some $(eval) trickery to use the same rule body to update the major, minor, or dot release number depending on which of major-release, minor-release, or dot-release was specified on the command line.
+
+To understand how it works, follow what happens when you do make minor-release with an existing version number of 1.0.0.
+
+The $(eval increment_name := $(call uc,$(subst -release,,$@))) ➊ first uses $(subst) to remove -release from the target name (so minor-release becomes simply minor).
+
+Then it calls the GMSL uc function (which uppercases a string) to turn minor into MINOR. It stores that in a variable called increment-name. Here’s the tricky part: increment-name will be used as the name of a variable to increment (one of MAJOR, MINOR, or DOT).
+
+At ➋, $(eval $(increment_name) := $(call inc,$($(increment_name)))) actually does that work. It uses the GMSL inc function to increment the value stored in the variable whose name is in increment-name (notice the $($(increment-name)), which finds the value of a variable whose name is in another variable) and then sets that value to the incremented value.
+
+Finally, it just creates a new version.c containing the new version number ➌. For example:
+
+$ make -n major-release
+echo 'char * ver = "2.0.0";' > version.c
+$ make -n minor-release
+echo 'char * ver = "1.1.0";' > version.c
+$ make -n dot-release
+echo 'char * ver = "1.0.1";' > version.c
+
+This is the result of using the -n option when starting from version 1.0.0 and asking for the different possible releases.
+GMSL Reference
+
+This section is a complete reference for the GNU Make Standard Library version 1.1.7 and covers GMSL logical operators; integer functions; list, string, and set manipulation functions; associative arrays; and named stacks. For each category of GMSL functions, you’ll see an introduction to the functions, followed by a quick reference section that lists arguments and returns. For the latest version of the complete reference, check the GMSL website at http://gmsl.sf.net/.
+
+If you’re interested in advanced GNU make programming, it’s worth studying the source code of the GMSL (especially the file __gmsl). The techniques used to create individual GMSL functions are often useful in other situations.
+Logical Operators
+
+GMSL has Booleans $(true), a non-empty string actually set to the single character T, and $(false), an empty string. You can use the following operators with those variables or with functions that return those values.
+
+Although these functions are consistent in that they always return $(true) or $(false), they are lenient about accepting any non-empty string that indicates true. For example:
+
+$(call or,$(wildcard /tmp/foo),$(wildcard /tmp/bar))
+
+This tests for the existence of either of two files, /tmp/foo and /tmp/bar, using $(wildcard) and the GMSL or function. Doing $(wildcard /tmp/foo) will return /tmp/foo if the file exists or an empty string if not. So the output of the $(wildcard /tmp/foo) can be fed directly into or, where /tmp/foo will be interpreted as true and an empty string as false.
+
+If you feel more comfortable working exclusively with values like $(true) and $(false), define a make-bool function like this:
+
+make-bool = $(if $(strip $1),$(true),$(false))
+
+This will turn any non-empty string (after stripping off whitespace) into $(true) and leave a blank string (or one that had only whitespace in it) as $(false). make-bool can be handy when whitespace might slip into values returned by functions.
+
+For example, here’s a small GNU make variable that is $(true) if the current month is January:
+
+january-now := $(call make-bool,$(filter Jan,$(shell date)))
+
+This runs the date shell command, extracts the word Jan, and turns it into a truth value using make-bool. Using $(filter) like this treats the result of date as a list and then filters out any word in the list that is not Jan. This technique can be handy in other situations for extracting parts of a string.
+
+You can make a generic function to discover if a list contains a word:
+
+contains-word = $(call make-bool,$(filter $1,$2))
+january-now := $(call contains-word,Jan,$(shell date))
+
+Using contains-word, you can redefine january-now.
+not
+
+The GMSL includes all the common logical operators. The simplest is the not function, which logically negates its argument:
+
+not
+
+Argument: A single boolean value
+Returns:  $(true) if the boolean is $(false) and vice versa
+
+For example, $(call not,$(true)) returns $(false).
+and
+
+The and function returns $(true) if (and only if) both its arguments are true:
+
+and
+
+Arguments: Two boolean values
+Returns:   $(true) if both of the arguments are $(true)
+
+For example, $(call and,$(true),$(false)) returns $(false).
+or
+
+The or function returns $(true) if either of its arguments is true:
+
+or
+
+Arguments: Two boolean values
+Returns:   $(true) if either of the arguments is $(true)
+
+For example, $(call or,$(true),$(false)) returns $(true).
+xor
+
+The xor function is exclusive or:
+
+xor
+
+Arguments: Two boolean values
+Returns:   $(true) if exactly one of the booleans is true
+
+For example, $(call xor,$(true),$(false)) returns $(true).
+nand
+
+nand is simply not and:
+
+nand
+
+Arguments: Two boolean values
+Returns:   Value of 'not and'
+
+For example, $(call nand,$(true),$(false)) returns $(true) where $(call and,$(true),$(false)) returns $(false).
+nor
+
+nor is simply not or:
+
+nor
+
+Arguments: Two boolean values
+Returns:   Value of 'not or'
+
+For example, $(call nor,$(true),$(false)) returns $(false) where $(call or,$(true),$(false)) returns $(true).
+xnor
+
+The rarely used xnor is not xor:
+
+xnor
+
+Arguments: Two boolean values
+Returns:   Value of 'not xor'
+
+Note that the GMSL logical functions and and or are not short circuiting; both of the arguments to those functions are expanded before performing the logical and or or. GNU make 3.81 introduced built-in and and or functions that are short circuiting: they evaluate their first argument and then decide whether it’s necessary to evaluate their second.
+Integer Arithmetic Functions
+
+In Chapter 5, you saw how to perform arithmetic inside GNU make by representing non-negative integers as lists of xs. For example, 4 is x x x x. GMSL uses the same representation for integers and provides a wide range of functions for integer calculations.
+
+The arithmetic library functions come in two forms: one form of each function takes integers as arguments, and the other form takes encoded arguments (xs created by a call to int_encode). For example, there are two plus functions: plus (called with integer arguments, returns an integer) and int_plus (called with encoded arguments, returns an encoded result).
+
+plus will be slower than int_plus because its arguments and result must be translated between the x format and integers. If you’re doing a complex calculation, use the int_* forms with a single encoding of inputs and single decoding of the output. For simple calculations, you can use the direct forms.
+int_decode
+
+The int_decode function takes a number in x-representation and returns the decimal integer that it represents:
+
+int_decode
+
+Arguments: 1: A number in x-representation
+Returns:   The integer for human consumption that is represented
+           by the string of x's
+
+int_encode
+
+int_encode is the opposite of int_decode: it takes a decimal integer and returns the x-representation:
+
+int_encode
+
+Arguments: 1: A number in human-readable integer form
+Returns:   The integer encoded as a string of x's
+
+int_plus
+
+int_plus adds two numbers in x-representation together and returns their sum in x-representation:
+
+int_plus
+
+Arguments: 1: A number in x-representation
+           2: Another number in x-representation
+Returns:   The sum of the two numbers in x-representation
+
+plus
+
+To add decimal integers, use the plus function, which converts to and from x-representation and calls int_plus:
+
+plus (wrapped version of int_plus)
+
+Arguments: 1: An integer
+           2: Another integer
+Returns:   The sum of the two integers
+
+int_subtract
+
+int_subtract subtracts two numbers in x-representation and returns the difference in x-representation:
+
+int_subtract
+
+Arguments: 1: A number in x-representation
+           2: Another number in x-representation
+Returns:   The difference of the two numbers in x-representation,
+           or outputs an error on a numeric underflow
+
+If the difference will be less than 0 (which can’t be represented), an error occurs.
+subtract
+
+To subtract decimal integers, use the subtract function, which converts to and from x-representation and calls int_subtract:
+
+subtract (wrapped version of int_subtract)
+
+Arguments: 1: An integer
+           2: Another integer
+Returns:   The difference of the two integers, or outputs an error on a
+           numeric underflow
+
+If the difference will be less than 0 (which can’t be represented), an error occurs.
+int_multiply
+
+int_multiply multiplies two numbers that are in x-representation:
+
+int_multiply
+
+Arguments: 1: A number in x-representation
+           2: Another number in x-representation
+Returns:   The product of the two numbers in x-representation
+
+multiply
+
+multiply will multiply two decimal integers and return their product. It automatically converts to and from x-representation and calls int_multiply:
+
+multiply (wrapped version of int_multiply)
+
+Arguments: 1: An integer
+           2: Another integer
+Returns:   The product of the two integers
+
+int_divide
+
+int_divide divides one number by another; both are in x-representation, as is the result:
+
+int_divide
+Arguments: 1: A number in x-representation
+           2: Another number in x-representation
+Returns:   The result of integer division of argument 1 divided
+           by argument 2 in x-representation
+
+divide
+
+The divide function calls int_divide to divide two decimal integers, automatically converting to and from x-representation:
+
+divide (wrapped version of int_divide)
+
+Arguments: 1: An integer
+           2: Another integer
+Returns:   The integer division of the first argument by the second
+
+int_max and int_min
+
+int_max and int_min return the maximum and minimum, respectively, of two numbers in x-representation:
+
+int_max, int_min
+
+Arguments: 1: A number in x-representation
+           2: Another number in x-representation
+Returns:   The maximum or minimum of its arguments in x-representation
+
+max and min
+
+The decimal integer equivalents of int_max and int_min are max and min; they automatically convert to and from x-representation:
+
+max, min
+
+Arguments: 1: An integer
+           2: Another integer
+Returns:   The maximum or minimum of its integer arguments
+
+int_inc
+
+int_inc is a small helper function that just adds one to an x-representation number:
+
+int_inc
+
+Arguments: 1: A number in x-representation
+Returns:   The number incremented by 1 in x-representation
+
+inc
+
+The inc function adds one to a decimal integer:
+
+inc
+
+Arguments: 1: An integer
+Returns:   The argument incremented by 1
+
+int_dec
+
+The opposite of int_inc is int_dec: it decreases a number by one:
+
+int_dec
+
+Arguments: 1: A number in x-representation
+Returns:   The number decremented by 1 in x-representation
+
+dec
+
+The dec function decrements a decimal integer by one:
+
+dec
+
+Arguments: 1: An integer
+Returns:   The argument decremented by 1
+
+int_double
+
+The double and halve functions (and their int_double and int_halve equivalents) are provided for performance reasons. If you’re multiplying by two or dividing by two, these functions will be faster than multiplication and division.
+
+int_double will double an integer:
+
+int_double
+
+Arguments: 1: A number in x-representation
+Returns:   The number doubled (* 2) and returned in x-representation
+
+double
+
+double will double a decimal integer:
+
+double
+
+Arguments: 1: An integer
+Returns:   The integer times 2
+
+Internally, it converts to x-representation and calls int_double.
+int_halve
+
+You can perform an integer division by two by calling int_halve on an x-representation number:
+
+int_halve
+
+Arguments: 1: A number in x-representation
+Returns:   The number halved (/ 2) and returned in x-representation
+
+halve
+
+Finally, there’s halve:
+
+halve
+
+Arguments: 1: An integer
+Returns:   The integer divided by 2
+
+This is the decimal integer equivalent of int_halve.
+Integer Comparison Functions
+
+All the integer comparison functions return $(true) or $(false):
+
+int_gt, int_gte, int_lt, int_lte, int_eq, int_ne
+
+Arguments: Two x-representation numbers to be compared
+Returns:   $(true) or $(false)
+
+int_gt  First argument is greater than second argument
+int_gte First argument is greater than or equal to second argument
+int_lt  First argument is less than second argument
+int_lte First argument is less than or equal to second argument
+int_eq  First argument is numerically equal to the second argument
+int_ne  First argument is not numerically equal to the second argument
+
+These can be used with GNU make and GMSL functions as well as with directives that expect Boolean values (such as the GMSL logical operators).
+
+But you are more likely to use these versions of the comparison functions:
+
+gt, gte, lt, lte, eq, ne
+
+Arguments: Two integers to be compared
+Returns:   $(true) or $(false)
+
+int_gt  First argument is greater than second argument
+int_gte First argument is greater than or equal to second argument
+int_lt  First argument is less than second argument
+int_lte First argument is less than or equal to second argument
+int_eq  First argument is numerically equal to the second argument
+int_ne  First argument is not numerically equal to the second argument
+
+These operate on decimal integers, not the internal x-representation that GMSL uses.
+Miscellaneous Integer Functions
+
+Most likely, you’re not going to need to do anything advanced with GNU make arithmetic, but the miscellaneous functions detailed here do base conversions and generation of numeric sequences. They can, on occasion, be useful.
+sequence
+
+You use the sequence function to generate a sequence of numbers:
+
+sequence
+
+Arguments: 1: An integer
+           2: An integer
+Returns:   The sequence [arg1 arg2] if arg1 >= arg2 or [arg2 arg1] if arg2 > arg1
+
+For example, $(call sequence,10,15) will be the list 10 11 12 13 14 15. To create a decreasing sequence, you invert the parameters to sequence. For example, $(call sequence,15,10) will be the list 15 14 13 12 11 10.
+dec2hex, dec2bin, and dec2oct
+
+The dec2hex, dec2bin, and dec2oct functions perform conversion between decimal numbers and hexadecimal, binary, and octal forms:
+
+dec2hex, dec2bin, dec2oct
+
+Arguments: 1: An integer
+Returns:   The decimal argument converted to hexadecimal, binary or octal
+
+For example, $(call dec2hex,42) will be 2a.
+
+No options are available for padding with leading zeroes. If that’s necessary, you can use GMSL string functions. For example, here’s a padded version of dec2hex that takes two parameters: a decimal number to be converted to hexadecimal and the number of digits to output:
+
+__repeat = $(if $2,$(call $0,$1,$(call rest,$2),$1$3),$3)
+
+repeat = $(call __repeat,$1,$(call int_encode,$2),)
+
+This works by defining some helper functions. First, repeat creates a string consisting of a number of copies of another string. For example, $(call repeat,10,A) will be AAAAAAAAAA.
+
+Some subtle things are happening in this definition. The repeat function calls __repeat with three parameters: $1 is the string to be repeated, $2 is the number of times to repeat $1, and $3 has been set to a blank string by the trailing comma in the $(call) to __repeat. The $0 variable contains the name of the current function; in __repeat it will be __repeat.
+
+The __repeat function is recursive and uses the $2 as the recursion guard. The repeat function converts the number of desired repeats into the x-representation used by GMSL arithmetic functions and passes it to __repeat. For example, $(call repeat,Hello,5) turns into $(call __repeat,Hello,x x x x x,), and __repeat chops an x off $2 each time around until $2 is empty.
+
+With repeat written, we just need a way to pad a string to some number of characters with a padding character. The function pad achieves that:
+
+pad = $(call repeat,$1,$(call subtract,$2,$(call strlen,$3)))$3
+
+paddeddec2hex = $(call pad,0,$2,$(call dec2hex,$1))
+
+Its three arguments are the character to pad with, the total width of the padded output in character, and the string to pad. For example, $(call pad,0,4,2a) would return 002a. From that, a padded dec2hex can easily be defined. It takes two parameters: the first is the decimal number to convert to hexadecimal, and the second is the number of characters to pad to.
+
+As you’d expect, $(call paddeddec2hex,42,8) returns 0000002a.
+List Manipulation Functions
+
+In GNU make and GMSL terms, a list is a string of characters that has whitespace as separators. Both the GNU make built-in functions that work on lists and the GMSL functions treat multiple whitespaces as a single space. So the lists 1 2 3 and 1 2 3 are the same.
+
+I’ll explain a few of the list manipulation functions in detail in the following sections. These functions are more complicated than the others in their use, and they’re typically available in functional languages.
+Applying a Function to a List with map
+
+When you’re working with GNU make functions (either built-ins or your own), you’re actually programming in a simple functional language. In functional programming, it’s common to have a map function that applies a function to every element of a list. GMSL defines map to do exactly that. For example:
+
+SRCS := src/FOO.c src/SUBMODULE/bar.c src/foo.c
+NORMALIZED := $(call uniq,$(call map,lc,$(SRCS)))
+
+Given a list of filenames (perhaps with paths specified) in SRCS, this will ensure that all the filenames are lowercased and then apply the uniq function to get a unique list of source files.
+
+This uses the GMSL function lc to lowercase each filename in SRCS. You can use the map function with both built-in and user-defined functions. Here, NORMALIZED would be src/foo.c src/submodule/bar.c.
+
+Another use of map might be to get the size of every source file:
+
+size = $(firstword $(shell wc -c $1))
+
+SOURCE_SIZES := $(call map,size,$(SRCS))
+
+Here we define a size function that uses $(shell) to call wc, and then we apply it to every file in SRCS.
+
+Here SOURCE_SIZES might be something like 1538 1481 with one element for each source file.
+Making a reduce Function
+
+Another common function in functional languages is reduce. reduce applies a function that takes two parameters to successive elements of a list, feeding the return value from the function into the next call to it. The GMSL doesn’t have a built-in reduce function, but you can easily define it:
+
+reduce = $(if $2,$(call $0,$1,$(call rest,$2),$(call $1,$3,$(firstword $2))),$3)
+
+Summing a List of Numbers Using reduce
+
+Combining reduce with the plus function, you can easily make a GNU make function that sums a list of numbers:
+
+sum-list = $(call reduce,plus,$1,0)
+
+The sum-list function takes a single parameter, a list of numbers, and returns the sum of those numbers. It passes three things to reduce: the name of the function to call for each element of the list (in this case, plus), the list of numbers, and a starting number (in this case, 0).
+
+Here’s how it works. Suppose $(call sum-list,1 2 3 4 5) is called. The following sequence of calls to plus will be performed:
+
+$(call plus,1,0) which returns 1
+$(call plus,1,2) which returns 3
+$(call plus,3,3) which returns 6
+$(call plus,6,4) which returns 10
+$(call plus,10,5) which returns 15
+
+The first call uses the first element of the list and the starting number 0. Each subsequent call uses the next element from the list and the last result of calling plus.
+
+You could combine sum-list with the SOURCE_SIZES variable to get the total size of the source code:
+
+TOTAL_SIZE := $(call sum-list,$(SOURCE_SIZES))
+
+In this case, TOTAL_SIZE would be 3019.
+Mapping a Function Across a Pair of Lists
+
+The other interesting function that GMSL defines for lists is pairmap. It takes three arguments: two lists (which should be the same length) and a function. The function is applied to the first element of each list, the second element, the third element, and so on.
+
+Suppose SRCS contains a list of source files. Using the size function we defined, combined with map, we defined SOURCE_SIZES, which contains a list of the sizes of each source file. Using pairmap, we can zip the two lists together to output the name of each file and its size:
+
+zip = $1:$2
+
+SOURCES_WITH_SIZES := $(call pairmap,zip,$(SRCS),$(SOURCE_SIZES))
+
+The zip function is applied to each source filename and size in turn, and makes a string separating the filename and its size with a colon. Using our example files and sizes from this section, SOURCES_WITH_SIZES would be src/foo.c:1538 src/submodule/bar.c:1481.
+first
+
+first takes in a list and returns its first element:
+
+first
+
+Arguments: 1: A list
+Returns:   Returns the first element of a list
+
+Note that first is identical to the GNU make function $(firstword).
+last
+
+The last function returns the final element of a list:
+
+last
+
+Arguments: 1: A list
+Returns:   The last element of a list
+
+GNU make 3.81 introduced $(lastword), which works the same way last does.
+rest
+
+The rest function is almost the opposite of first. It returns everything but the first element of a list:
+
+rest
+
+Arguments: 1: A list
+Returns:   The list with the first element removed
+
+chop
+
+To remove the last element of a list, use the chop function:
+
+chop
+
+Arguments: 1: A list
+Returns:   The list with the last element removed
+
+map
+
+The map function iterates over a list (its second argument) and calls a function (named in its first argument) on each list element. The list of values returned by each call to the named function is returned:
+
+map
+Arguments: 1: Name of function to $(call) for each element of list
+           2: List to iterate over calling the function in 1
+Returns:   The list after calling the function on each element
+
+pairmap
+
+pairmap is similar to map but iterates over a pair of lists:
+
+pairmap
+
+Arguments: 1: Name of function to $(call) for each pair of elements
+           2: List to iterate over calling the function in 1
+           3: Second list to iterate over calling the function in 1
+Returns:   The list after calling the function on each pair of elements
+
+The function in the first argument is called with two arguments: one element from each of the lists being iterated over.
+leq
+
+The leq list equality testing function will correctly return $(true) for lists that are identical other than having different whitespace:
+
+leq
+
+Arguments: 1: A list to compare against...
+           2: ...this list
+Returns:   $(true) if the two lists are identical
+
+For example, leq considers 1 2 3 and 1 2 3 to be the same list.
+lne
+
+lne is the opposite of leq: it returns $(true) when two lists are not equal:
+
+lne
+
+Arguments: 1: A list to compare against...
+           2: ...this list
+Returns:   $(true) if the two lists are different
+
+reverse
+
+To reverse a list can be useful (particularly because it can then be fed into $(foreach) and iterated backward).
+
+reverse
+
+Arguments: 1: A list to reverse
+Returns:   The list with its elements in reverse order
+
+uniq
+
+The built-in $(sort) function will deduplicate a list, but it does so at the same time as sorting it. The GMSL uniq function deduplicates a list while preserving the order in which elements are first found:
+
+uniq
+
+Arguments: 1: A list to deduplicate
+Returns:   The list with elements in the original order but without duplicates
+
+For example, $(call uniq,a c b a c b) will return a c b.
+length
+
+To find out the number of elements in a list, call length:
+
+length
+
+Arguments: 1: A list
+Returns:   The number of elements in the list
+
+The length function is the same as the GNU make $(words) function.
+String Manipulation Functions
+
+A string is a sequence of any characters, including whitespace. The string equality (and string inequality) function seq works even with strings that contain whitespace or consist only of whitespace. For example:
+
+# space contains the space character
+
+space :=
+space +=
+
+# tab contains a tab
+
+tab :=→  # needed to protect the tab character
+
+$(info $(call seq,White Space,White Space))
+$(info $(call seq,White$(space)Space,White Space))
+$(info $(call sne,White$(space)Space,White$(tab)Space))
+$(info $(call seq,$(tab),$(tab)))
+$(info $(call sne,$(tab),$(space)))
+
+This outputs T five times, indicating that each call to seq or sne returned $(true).
+
+As with the list manipulation functions, I’ll cover a few of the more complicated functions in detail in the following sections.
+Splitting CSV Data into a GNU make List
+
+You can use the split function to turn a value in CSV format into a GNU make list. For example, splitting on a comma turns a CSV line into a list from which individual items can be extracted:
+
+CSV_LINE := src/foo.c,gcc,-Wall
+
+comma := ,
+FIELDS := $(call split,$(comma),$(CSV_LINE))
+
+$(info Compile '$(word 1,$(FIELDS))' using compiler '$(word 2,$(FIELDS))' with \
+options '$(word 3,$(FIELDS))')
+
+Notice how the variable comma is defined to contain a comma character so it can be used in the $(call) to the split function. This trick was discussed in Chapter 1.
+Making a PATH from a List of Directories
+
+The merge function does the opposite of split: it makes a string from a list by separating the list items by some character. For example, to turn a list of directories into a form suitable for the PATH (which is usually separated by colons), define list-to-path as follows:
+
+DIRS := /usr/bin /usr/sbin /usr/local/bin /home/me/bin
+
+list-to-path = $(call merge,:,$1)
+
+$(info $(call list-to-path,$(DIRS)))
+
+This outputs /usr/bin:/usr/sbin:/usr/local/bin:/home/me/bin.
+Translating Characters Using tr
+
+The most complicated string function is tr, which operates like the tr shell program. It transforms each character from a collection of characters into a corresponding character in a second list. The GMSL defines some common character classes for use with tr. For example, it defines variables called [A-Z] and [a-z] (yes, those are really the names) that contain the uppercase and lowercase characters.
+
+We can use tr to make a function that translates to leet-speak:
+
+leet = $(call tr,A E I O L T,4 3 1 0 1 7,$1)
+
+$(info $(call leet,I AM AN ELITE GNU MAKE HAXOR))
+
+This outputs 1 4M 4N 31173 GNU M4K3 H4X0R.
+seq
+
+The slightly confusingly named seq function tests whether two strings are equal:
+
+seq
+
+Arguments: 1: A string to compare against...
+           2: ...this string
+Returns:   $(true) if the two strings are identical
+
+sne
+
+The opposite, string inequality, is tested with sne:
+
+sne
+
+Arguments: 1: A string to compare against...
+           2: ...this string
+Returns:   $(true) if the two strings are not the same
+
+streln
+
+The length function gets the length of a list; the equivalent for strings is strlen:
+
+strlen
+
+Arguments: 1: A string
+Returns:   The length of the string
+
+substr
+
+It’s possible to extract a substring using the substr function:
+
+substr
+
+Arguments: 1: A string
+           2: Starting offset (first character is 1)
+           3: Ending offset (inclusive)
+Returns:   A substring
+
+Note that in GMSL, strings start from position 1, not 0.
+split
+
+To split a string into a list, you use the split function:
+
+split
+
+Arguments: 1: The character to split on
+           2: A string to split
+Returns:   A list separated by spaces at the split character in the
+           first argument
+
+Note that if the string contains spaces, the result may not be as expected. GNU make’s use of spaces as the list delimiter makes working with spaces and lists together very difficult. See Chapter 4 for more on GNU make’s handling of spaces.
+merge
+
+merge is the opposite of split. It takes a list and outputs a string with a character between each list element:
+
+merge
+
+Arguments: 1: The character to put between fields
+           2: A list to merge into a string
+Returns:   A single string, list elements are separated by the character in
+           the first argument
+
+tr
+
+You use the tr function to translate individual characters, and it’s a building block for creating the uc and lc functions:
+
+tr
+
+Arguments: 1: The list of characters to translate from 
+           2: The list of characters to translate to
+           3: The text to translate
+Returns:   The text after translating characters
+
+uc
+
+uc performs simple uppercasing of the alphabet a-z:
+
+uc
+
+Arguments: 1: Text to uppercase
+Returns:   The text in uppercase
+
+lc
+
+Finally, we have lc:
+
+lc
+
+Arguments: 1: Text to lowercase
+Returns:   The text in lowercase
+
+This performs simple lowercasing of the alphabet A-Z.
+Set Manipulation Functions
+
+Sets are represented by sorted, deduplicated lists. To create a set from a list, use set_create or start with the empty_set and set_insert individual elements. The empty set is defined by the variable empty_set.
+
+For example, a makefile could keep track of all the directories that it made using the marker technique discussed in Making Directories:
+
+MADE_DIRS := $(empty_set)
+
+marker = $1.f
+make_dir = $(eval $1.f: ; @$$(eval MADE_DIRS := $$(call      \
+set_insert,$$(dir $$@),$$(MADE_DIRS))) mkdir -p $$(dir $$@); \
+touch $$@)
+
+all: $(call marker,/tmp/foo/) $(call marker,/tmp/bar/)
+→  @echo Directories made: $(MADE_DIRS)
+
+$(call make_dir,/tmp/foo/)
+$(call make_dir,/tmp/bar/)
+
+Updating the make_dir function (which creates rules to make directories) with a call to set_insert means that the variable MADE_DIRS will keep track of the set of directories created.
+
+In a real makefile, many directories would likely be built, and using a set would be an easy way to discover which had been built at any point.
+
+Note that because a set is implemented as a GNU make list, you can’t insert an item that contains a space.
+set_create
+
+You create a set by using the set_create function:
+
+set_create
+
+Arguments: 1: A list of set elements
+Returns:   The newly created set
+
+It takes a list of elements and adds them to a set. The set itself is returned. Note that set elements may not contain spaces.
+set_insert
+
+Once a set has been created using set_create, you can add an element to it using set_insert:
+
+set_insert
+
+Arguments: 1: A single element to add to a set
+           2: A set
+Returns:   The set with the element added
+
+set_remove
+
+To remove an element from a set, call set_remove:
+
+set_remove
+
+Arguments: 1: A single element to remove from a set
+           2: A set
+Returns:   The set with the element removed
+
+It is not an error to remove an element from a set when that element was not present.
+set_is_member
+
+To test whether an element is a member of a set, call set_is_member. It returns a Boolean value indicating whether the element was present:
+
+set_is_member
+
+Arguments: 1: A single element
+           2: A set
+Returns:   $(true) if the element is in the set
+
+set_union
+
+You merge two sets together by calling the set_union function on the two sets. The merged set is returned:
+
+set_union
+
+Arguments: 1: A set
+           2: Another set
+Returns:   The union of the two sets
+
+set_intersection
+
+To determine the elements common to two sets, use set_intersection. It returns the set of elements that were present in both sets passed in as arguments:
+
+set_intersection
+
+Arguments: 1: A set
+           2: Another set
+Returns:   The intersection of the two sets
+
+set_is_subset
+
+It is sometimes useful to know if one set is a subset of another, which you can test by calling set_is_subset:
+
+set_is_subset
+
+Arguments: 1: A set
+           2: Another set
+Returns:   $(true) if the first set is a subset of the second
+
+set_is_subset returns a Boolean value indicating whether the first set is a subset of the second.
+set_equal
+
+To determine if two sets are equal, call set_equal:
+
+set_equal
+
+Arguments: 1: A set
+           2: Another set
+Returns:   $(true) if the two sets are identical
+
+set_equal returns $(true) if the two sets have exactly the same elements.
+Associative Arrays
+
+An associative array maps a key value (a string with no spaces in it) to a single value (any string). Associative arrays are sometimes referred to as maps or even hash tables (although that’s an implementation detail, and the GMSL associative arrays do not use hashing).
+
+You can use associative arrays as lookup tables. For example:
+
+C_FILES := $(wildcard *.c)
+
+get-size = $(call first,$(shell wc -c $1))
+$(foreach c,$(C_FILES),$(call set,c_files,$c,$(call get-size,$c)))
+
+$(info All the C files: $(call keys,c_files))
+$(info foo.c has size $(call get,c_files,foo.c))
+
+This small makefile gets a list of all the .c files in the current directory and their sizes, and then it makes an associative array mapping from a filename to its size.
+
+The get-size function uses wc to get the number of bytes in a file. The C_FILES variable contains all the .c files in the current directory. The $(foreach) uses the GMSL set function to set a mapping in an associative array called c_files between each .c file and its size.
+
+Here’s an example run:
+
+$ make
+All the C files: bar.c foo.c foo.c
+has size 551
+
+The first line is a list of all the .c files found; it’s printed using the keys function to get all the keys in the associative array. The second line comes from looking up the length of foo.c using get.
+set
+
+The GMSL keeps internal track of named associative arrays, but it is not necessary to explicitly create them. Simply call set to add elements to the array, and the array will be created if it does not exist. Note that array keys cannot contain spaces.
+
+set
+
+Arguments: 1: Name of associative array
+           2: The key value to associate
+           3: The value associated with the key
+Returns:   Nothing
+
+get
+
+To retrieve an item from an associate array, call get. If the key is not present, get will return an empty string.
+
+get
+
+Arguments: 1: Name of associative array
+           2: The key to retrieve
+Returns:   The value stored in the array for that key
+
+keys
+
+The keys function returns a list of all the keys present in an associative array. You can use this with $(foreach) to iterate an associative array:
+
+keys
+
+Arguments: 1: Name of associative array
+Returns:   A list of all defined keys in the array
+
+defined
+
+To test whether a key is present in an associated array, call defined:
+
+defined
+
+Arguments: 1: Name of associative array
+           2: The key to test
+Returns:   $(true) if the key is defined (i.e., not empty)
+
+defined returns a Boolean indicating whether the key was defined or not.
+Named Stacks
+
+A stack is an ordered list of strings (with no spaces in them). In GMSL, stacks are stored internally, and they have names, like associative arrays do. For example:
+
+traverse-tree = $(foreach d,$(patsubst %/.,%,$(wildcard $1/*/.)),  \
+$(call push,dirs,$d)$(call traverse-tree,$d))
+
+$(call traverse-tree,sources)
+
+dump-tree = $(if $(call sne,$(call depth,dirs),0),$(call pop,dirs) \
+$(call dump-tree))
+
+$(info $(call dump-tree))
+
+This small makefile uses a stack to follow a tree of directories.
+traverse-tree
+
+The traverse-tree function finds all the subdirectories of its argument (stored in $1) using the $(wildcard) function to find the . file that is always present in a directory. It uses the $(patsubst) function to strip off the trailing /. from each value returned by $(wildcard) to get the full directory name.
+
+Before it traverses down into that directory, it pushes the directory found onto a stack called dirs.
+dump-tree
+
+The dump-tree function pops items off the dirs tree until there are none left (until the depth becomes 0).
+
+Example 6-1 shows a directory structure.
+
+Example 6-1. A directory structure
+
+$ ls -R sources
+sources:
+bar  foo
+
+sources/bar:
+barsub
+sources/bar/barsub:
+
+sources/foo:
+subdir  subdir2
+
+sources/foo/subdir:
+subsubdir
+
+sources/foo/subdir/subsubdir:
+
+sources/foo/subdir2:
+
+If this directory structure exists under sources, the makefile will output:
+
+sources/foo sources/foo/subdir2 sources/foo/subdir sources/foo/subdir/
+subsubdir sources/bar sources/bar/barsub
+
+If it’s desirable to traverse the directory tree in a depth-first fashion, you can use the stack functions to define dfs, which searches a directory tree and builds the dirs stack containing the directories in depth-first order:
+
+__dfs = $(if $(call sne,$(call depth,work),0),$(call push,dirs,$(call    \
+peek,work)$(foreach d,$(patsubst %/.,%,$(wildcard $(call                 \
+pop,work)/*/.)),$(call push,work,$d)))$(call __dfs))
+
+dfs = $(call push,work,$1)$(call __dfs)
+
+$(call dfs,sources)
+
+dump-tree = $(if $(call sne,$(call depth,dirs),0),$(call pop,dirs) $(call \
+dump-tree))
+
+$(info $(call dump-tree,dirs))
+
+The dump-tree function hasn’t changed (it just outputs everything in the stack by successive calls to pop). But the dfs function is new. It uses a working stack called work to keep track of directories to visit. It first pushes the starting directory onto the work stack and then calls the __dfs helper.
+
+The real work is done by __dfs. It pushes the current directory onto the dirs stack, pushes all the children of that directory onto the work stack, and then it recurses. Recursion stops when the work stack is empty.
+
+The output for the directory structure in Example 6-1 is now:
+
+sources/bar/barsub sources/bar sources/foo/subdir/subsubdir sources/foo/subdir
+sources/foo/subdir2 sources/foo sources.
+
+push
+
+Anyone who has used a stack will be familiar with pushing and popping elements. The GMSL stack functions are very similar. To add an element to the top of the stack, call push:
+
+push
+
+Arguments: 1: Name of stack
+           2: Value to push onto the top of the stack (must not contain
+           a space)
+Returns:   None
+
+pop
+
+To retrieve the top element, call pop:
+
+pop
+
+Arguments: 1: Name of stack
+Returns:   Top element from the stack after removing it
+
+peek
+
+The peek function operates like pop but doesn’t remove the top stack element; it just returns its value:
+
+peek
+
+Arguments: 1: Name of stack
+Returns:   Top element from the stack without removing it
+
+depth
+
+Finally, you can call depth:
+
+depth
+
+Arguments: 1: Name of stack
+Returns:   Number of items on the stack
+
+depth determines how many elements are present on the stack.
+Function Memoization
+
+To reduce the number of calls to slow functions, such as $(shell), a single memoization function is provided. For example, suppose a makefile needs to know the MD5 values of various files and defines a function md5.
+
+md5 = $(shell md5sum $1)
+
+That’s a pretty expensive function to call (because of the time md5sum would take to execute), so it would be desirable to call it only once for each file. A memoized version of the md5 function looks like this:
+
+md5once = $(call memoize,md5,$1)
+
+It will call the md5sum function just once for each inputted filename and record the returned value internally so that a subsequent call to md5once with the same filename returns the MD5 value without having to run md5sum. For example:
+
+$(info $(call md5once,/etc/passwd))
+$(info $(call md5once,/etc/passwd))
+
+This prints out the MD5 value of /etc/passwd twice but executes md5sum only once.
+
+The actual memoize function is defined using the GMSL associative array functions:
+
+memoize
+
+Arguments: 1: Name of function to memoize
+           2: String argument for the function
+Returns:   Result of $1 applied to $2 but only calls $1 once for each unique $2
+
+Miscellaneous and Debugging Facilities
+
+Table 6-1 shows constants that GMSL defines.
+
+Table 6-1. GMSL Constants
+
+Constant
+	
+
+Value
+	
+
+Purpose
+
+true
+	
+
+T
+	
+
+The Boolean value true
+
+false
+	
+
+(an empty string)
+	
+
+The Boolean value false
+
+gmsl_version
+	
+
+1 1 7
+	
+
+Current GMSL version number (major minor revision)
+
+You access these constants as normal GNU make variables by wrapping them in $() or ${}.
+gmsl_compatible
+
+You know the gmsl_compatible function from Checking the GMSL Version:
+
+gmsl_compatible
+
+Arguments: List containing the desired library version number (major minor
+           revision)
+Returns:   $(true) if the current version of the library is compatible
+           with the requested version number, otherwise $(false)
+
+In Chapter 1, you saw a recipe for outputting variable values using a pattern rule with target print-%. Because this is such a useful rule, GMSL defines its own gmsl-print-% target that you can use to print the value of any variable defined in a makefile that includes GMSL.
+
+For example:
+
+include gmsl
+
+FOO := foo bar baz
+all:
+
+gmsl-print-%
+
+gmsl-print-% can be used to print any makefile variable, including variables inside GMSL. For example, make gmsl-print-gmsl_version would print the current GMSL version.
+
+gmsl-print-% (target not a function)
+
+Arguments: The % should be replaced by the name of a variable that you
+           wish to print
+Action:    Echoes the name of the variable that matches the % and its value
+
+assert
+
+As discussed in Makefile Assertions, it can be useful to have assertions in a makefile. GMSL provides two assertion functions: assert and assert_exists.
+
+assert
+
+Arguments: 1: A boolean that must be true or the assertion will fail
+           2: The message to print with the assertion
+Returns:   None
+
+assert_exists
+
+To assert that an individual file or directory exists, GMSL provides the assert_exists function:
+
+assert_exists
+
+Arguments: 1: Name of file that must exist, if it is missing an assertion
+           will be generated
+Returns:   None
+
+Environment Variables
+
+Table 6-2 shows GMSL environment variables (or command line overrides), which control various bits of functionality.
+
+Table 6-2. GMSL Environment Variables
+
+Variable
+	
+
+Purpose
+
+GMSL_NO_WARNINGS
+	
+
+If set, prevents GMSL from outputting warning messages. For example, arithmetic functions can generate underflow warnings.
+
+GMSL_NO_ERRORS
+	
+
+If set, prevents GMSL from generating fatal errors: division by zero or failed assertions are fatal.
+
+GMSL_TRACE
+	
+
+Enables function tracing. Calls to GMSL functions will result in name and arguments being traced. See Tracing Variable Values for a discussion of makefile tracing.
+
+These environment variables can all be set in the environment or on the command line.
+
+For example, this makefile contains an assertion that will always fail, stopping the make process:
+
+include gmsl
+
+$(call assert,$(false),Always fail)
+
+all:
+
+Setting GMSL_NO_ERRORS prevents the assertion from stopping the make process. In that case the output of the assert is hidden and make continues normally:
+
+$ make
+Makefile:5: *** GNU Make Standard Library: Assertion failure: Always fail.
+Stop.
+$ make GMSL_NO_ERRORS=1
+make: Nothing to be done for `all'.
+
+A few well-placed GMSL assertions in a makefile can make a big difference. By checking for makefile prerequisites (such as the presence of a specific file or that a compiler has a certain version number), a conscientious makefile writer can alert a user to a problem without forcing them to debug the often arcane output from make.

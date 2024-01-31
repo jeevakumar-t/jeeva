@@ -1,0 +1,1860 @@
+Search 50,000+ courses, events, titles, and more
+3. Building and Rebuilding
+4. Pitfalls and Problems
+5. Pushing the Envelope
+1h 37m remaining
+Chapter 4. Pitfalls and Problems
+
+In this chapter, you’ll learn how to deal with problems faced by makefile maintainers as projects get considerably larger. Tasks that seem easy with small makefiles become more difficult with large, sometimes recursive, make processes. As makefiles become more complex, it’s easy to run into problems with edge cases or sometimes poorly understood behavior of GNU make.
+
+Here you’ll see a complete solution to the “recursive make problem,” how to overcome GNU make’s problems handling filenames that contain spaces, how to deal with cross-platform file paths, and more.
+GNU make Gotcha: ifndef and ?=
+
+It’s easy to get tripped up by the two ways of checking whether a variable is defined, ifndef and ?=, because they do similar things, yet one has a deceptive name. ifndef doesn’t really test whether a variable is defined; it only checks that the variable is not empty, whereas ?= does make its decision based on whether the variable is defined or not.
+
+Compare these two ways of conditionally setting the variable FOO in a makefile:
+
+ifndef FOO
+FOO=New Value
+endif
+
+and
+
+FOO ?= New Value
+
+They look like they should do the same thing, and they do, well, almost.
+What ?= Does
+
+The ?= operator in GNU make sets the variable mentioned on its left side to the value on the right side if the left side is not defined. For example:
+
+FOO ?= New Value
+
+This makefile sets FOO to New Value.
+
+But the following one does not:
+
+FOO=Old Value
+FOO ?= New Value
+
+Neither does this one (even though FOO was initially empty):
+
+FOO=
+FOO ?= New Value
+
+In fact, ?= is the same as the following makefile, which uses the GNU make $(origin) function to determine whether a variable is undefined:
+
+ifeq ($(origin FOO),undefined)
+FOO = New Value
+endif
+
+$(origin FOO) will return a string that shows whether and how FOO is defined. If FOO is undefined, then $(origin FOO) is the string undefined.
+
+Note that variables defined with ?= are expanded, just like variables defined with the = operator. They are expanded when used but not when defined, just like a normal GNU make variable.
+What ifndef Does
+
+As mentioned earlier, ifndef tests whether a variable is empty but does not check to see whether the variable is defined. ifndef means if the variable is undefined or is defined but is empty. Thus, this:
+
+ifndef FOO
+FOO=New Value
+endif
+
+will set FOO to the New Value if FOO is undefined or FOO is empty. So ifndef can be rewritten as such:
+
+ifeq ($(FOO),)
+FOO=New Value
+endif
+
+because an undefined variable is always treated as having an empty value when read.
+$(shell) and := Go Together
+
+The suggestion in this section often speeds up makefiles with just the addition of a suitably placed colon. To understand how a single colon can make such a difference, you need to understand GNU make’s $(shell) function and the difference between = and :=.
+$(shell) Explained
+
+$(shell) is GNU make’s equivalent of the backtick (`) operator in the shell. It executes a command, flattens the result (turns all whitespace, including new lines, into spaces), and returns the resulting string.
+
+For example, if you want to get the output of the date command into a variable called NOW, you write:
+
+NOW = $(shell date)
+
+If you want to count the number of files in the current directory and get that number into FILE_COUNT, do this:
+
+FILE_COUNT = $(shell ls | wc -l )
+
+Because $(shell) flattens output to get the names of all the files in the current directory into a variable, the following works:
+
+FILES = $(shell ls)
+
+The newline between files is replaced with a single space, making FILES a space-separated list of filenames.
+
+It’s common to see an execution of the pwd command to get the current working directory into a variable (in this case CWD):
+
+CWD = $(shell pwd)
+
+We’ll look at the pwd command later when considering how to optimize an example makefile that wastes time getting the working directory over and over again.
+The Difference Between = and :=
+
+Ninety-nine percent of the time, you’ll see variable definitions in makefiles that use the = form, like this:
+
+   FOO = foo
+   BAR = bar
+   FOOBAR = $(FOO) $(BAR)
+
+   all: $(FOOBAR)
+➊ $(FOOBAR):
+   →  @echo $@ $(FOOBAR)
+
+   FOO = fooey
+   BAR = barney
+
+Here, variables FOO, BAR, and FOOBAR are recursively expanded variables. That means that when the value of a variable is needed, any variables that it references are expanded at that point. For example, if the value of $(FOOBAR) is needed, GNU make gets the value of $(FOO) and $(BAR), puts them together with the space in between, and returns foo bar. Expansion through as many levels of variables as necessary is done when the variable is used.
+
+In this makefile FOOBAR has two different values. Running it prints out:
+
+$ make
+foo fooey barney
+bar fooey barney
+
+The value of FOOBAR is used to define the list of prerequisites to the all rule and is expanded as foo bar; the same thing happens for the next rule ➊, which defines rules for foo and bar.
+
+But when the rules are run, the value of FOOBAR as used in the echo produces fooey barney. (You can verify that the value of FOOBAR was foo bar when the rules were defined by looking at the value of $@, the target being built, when the rules are run).
+
+Keep in mind the following two cases:
+
+    When a rule is being defined in a makefile, variables will evaluate to their value at that point in the makefile.
+
+    Variables used in recipes (that is, in the commands) have the final value: whatever value the variable had at the end of the makefile.
+
+If the definition of FOOBAR is changed to use a := instead of =, running the makefile produces a very different result:
+
+$ make
+foo foo bar
+bar foo bar
+
+Now FOOBAR has the same value everywhere. This is because := forces the right side of the definition to be expanded at that moment during makefile parsing. Rather than storing $(FOO) $(BAR) as the definition of FOOBAR, GNU make stores the expansion of $(FOO) $(BAR), which at that point is foo bar. The fact that FOO and BAR are redefined later in the makefile is irrelevant; FOOBAR has already been expanded and set to a fixed string. GNU make refers to variables defined in this way as simply expanded.
+
+Once a variable has become simply expanded, it remains that way unless it is redefined using the = operator. This means that when text is appended to a simply expanded variable, it is expanded before being added to the variable.
+
+For example, this:
+
+FOO=foo
+BAR=bar
+BAZ=baz
+FOOBAR := $(FOO) $(BAR)
+FOOBAR += $(BAZ)
+BAZ=bazzy
+
+results in FOOBAR being foo bar baz. If = had been used instead of :=, when $(BAZ) was appended, it would not have been expanded and the resulting FOOBAR would have been foo baz bazzy.
+The Hidden Cost of =
+
+Take a look at this example makefile:
+
+CWD = $(shell pwd)
+SRC_DIR=$(CWD)/src/
+OBJ_DIR=$(CWD)/obj/
+OBJS = $(OBJ_DIR)foo.o $(OBJ_DIR)bar.o $(OBJ_DIR)baz.o
+
+$(OBJ_DIR)%.o: $(SRC_DIR)%.c ; @echo Make $@ from $<
+
+all: $(OBJS)
+→  @echo $? $(OBJS)
+
+It gets the current working directory into CWD, defines a source and object directory as subdirectories of the CWD, defines a set of objects (foo.o, bar.o, and baz.o) to be built in the OBJ_DIR, sets up a pattern rule showing how to build a .o from a .c, and finally states that by default the makefile should build all the objects and print out a list of those that were out of date ($? is the list of prerequisites of a rule that were out of date) as well as a full list of objects.
+
+You might be surprised to learn that this makefile ends up making eight shell invocations just to get the CWD value. Imagine how many times GNU make would make costly calls to the shell in a real makefile with hundreds or thousands of objects!
+
+So many calls to $(shell) are made because the makefile uses recursively expanded variables: variables whose value is determined when the variable is used but not at definition time. OBJS references OBJ_DIR three times, which references CWD each time; every time OBJS is referenced, three calls are made to $(shell pwd). Any other reference to SRC_DIR or OBJ_DIR (for example, the pattern rule definition) results in another $(shell pwd).
+
+But a quick fix for this is just to change the definition of CWD to simply expand by inserting a : to turn = into :=. Because the working directory doesn’t change during the make, we can safely get it once:
+
+CWD := $(shell pwd)
+
+Now, a single call out to the shell is made to get the working directory. In a real makefile this could be a huge time-saver.
+
+Because it can be difficult to follow through a makefile to see everywhere a variable is used, you can use a simple trick that will cause make to print out the exact line at which a variable is expanded. Insert $(warning Call to shell) in the definition of CWD so that its definition becomes this:
+
+CWD = $(warning Call to shell)$(shell pwd)
+
+Then you get the following output when you run make:
+
+$ make
+makefile:8: Call to shell
+makefile:8: Call to shell
+makefile:10: Call to shell
+makefile:10: Call to shell
+makefile:10: Call to shell
+Make /somedir/obj/foo.o from /somedir/src/foo.c
+Make /somedir/obj/bar.o from /somedir/src/bar.c
+Make /somedir/obj/baz.o from /somedir/src/baz.c
+makefile:11: Call to shell
+makefile:11: Call to shell
+makefile:11: Call to shell
+/somedir/obj/foo.o /somedir/obj/bar.o /somedir/obj/baz.o /somedir/obj/foo.o
+/somedir/obj/bar.o /somedir/obj/baz.o
+
+The $(warning) doesn’t change the value of CWD, but it does output a message to STDERR. From the output you can see the eight calls to the shell and which lines in the makefile caused them.
+
+If CWD is defined using :=, the $(warning) trick verifies that CWD is expanded only once:
+
+$ make
+makefile:1: Call to shell
+Make /somedir/obj/foo.o from /somedir/src/foo.c
+Make /somedir/obj/bar.o from /somedir/src/bar.c
+Make /somedir/obj/baz.o from /somedir/src/baz.c
+/somedir/obj/foo.o /somedir/obj/bar.o /somedir/obj/baz.o /somedir/obj/foo.o
+/somedir/obj/bar.o /somedir/obj/baz.o
+
+A quick way to determine if a makefile uses the expensive combination of = and $(shell) is to run the command:
+
+grep -n \$\(shell makefile | grep -v :=
+
+This prints out the line number and details of every line in the makefile that contains a $(shell) and doesn’t contain a :=.
+$(eval) and Variable Caching
+
+In the previous section, you learned how to use := to speed up makefiles by not repeatedly performing a $(shell). Unfortunately, it can be problematic to rework makefiles to use := because they may rely on being able to define variables in any order.
+
+In this section, you’ll learn how to use GNU make’s $(eval) function to get the benefits of recursively expanded variables using = while getting the sort of speedup that’s possible with :=.
+About $(eval)
+
+$(eval)’s argument is expanded and then parsed as if it were typed in as part of a makefile. As a result, within a $(eval) (which could be inside a variable definition) you can programmatically define variables, create rules (explicit or pattern), include other makefiles, and so on. It’s a powerful function.
+
+Here’s an example:
+
+set = $(eval $1 := $2)
+
+$(call set,FOO,BAR)
+$(call set,A,B)
+
+This results in FOO having the value BAR and A having the value B. Obviously, this example could have been achieved without $(eval), but it’s easy to see how you can use $(eval) to make programmatic changes to the definitions in a makefile.
+An $(eval) Side Effect
+
+One use of $(eval) is to create side effects. For example, here’s a variable that is actually an auto-incrementing counter (it uses the arithmetic functions from the GMSL):
+
+include gmsl
+
+c-value := 0
+counter = $(c-value)$(eval c-value := $(call plus,$(c-value),1))
+
+Every time counter is used, its value is incremented by one. For example, the following sequence of $(info) functions outputs numbers in sequence starting from 0:
+
+$(info Starts at $(counter))
+$(info Then it's $(counter))
+$(info And then it's $(counter))
+
+Here’s the output:
+
+$ make
+Starts at 0
+Then it's 1
+And then it's 2
+
+You could use a simple side effect like this to find out how often a particular variable is reevaluated by GNU make. You might be surprised at the result. For example, when building GNU make, the variable srcdir from its makefile is accessed 48 times; OBJEXT is accessed 189 times, and that’s in a very small project.
+
+GNU make wastes time accessing an unchanging variable by looking at the same string repeatedly. If the variable being accessed is long (such as a long path) or contains calls to $(shell) or complex GNU make functions, the performance of variable handling could affect the overall runtime of a make.
+
+That’s especially important if you are trying to minimize build time by parallelizing the make or if a developer is running an incremental build requiring just a few files to be rebuilt. In both cases a long startup time by GNU make could be very inefficient.
+Caching Variable Values
+
+GNU make does provide a solution to the problem of reevaluating a variable over and over again: use := instead of =. A variable defined using := gets its value set once and for all, the right side is evaluated once, and the resulting value is set in the variable. Using := can cause a makefile to be parsed more quickly because the right side is evaluated only once. But it does introduce limitations, so it is rarely used. One limitation is that it requires variable definitions to be ordered a certain way. For example, if ordered this way:
+
+FOO := $(BAR)
+BAR := bar
+
+the result in FOO would have a totally different value than if it was ordered this way:
+
+BAR := bar
+FOO := $(BAR)
+
+In the first snippet FOO is empty, and in the second FOO is bar.
+
+Contrast that with the simplicity of the following:
+
+FOO = $(BAR)
+BAR = bar
+
+Here, FOO is bar. Most makefiles are written in this style, and only very conscientious (and speed conscious) makefile authors use :=.
+
+On the other hand, almost all of these recursively defined variables only ever have one value when used. The long evaluation time for a complex recursively defined variable is a convenience for the makefile author.
+
+An ideal solution would be to cache variable values so the flexibility of the = style is preserved, but the variables are only evaluated once for speed. Clearly, this would cause a minor loss of flexibility, because a variable can’t take two different values (which is sometimes handy in a makefile). But for most uses, it would provide a significant speed boost.
+Speed Improvements with Caching
+
+Consider the example makefile in Example 4-1:
+
+Example 4-1. In this makefile, FOO and C are uselessly evaluated over and over again.
+
+C := 1234567890 ABCDEFGHIJKLMNOPQRSTUVWXYZ
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+
+FOO = $(subst 9,NINE,$C)$(subst 8,EIGHT,$C)$(subst 7,SEVEN,$C) \
+$(subst 6,SIX,$C)$(subst 5,FIVE,$C)$(subst 4,FOUR,$C)          \
+$(subst 3,THREE,$C)$(subst 2,TWO,$C)$(subst 1,ONE,$C)
+_DUMMY := $(FOO)
+--snip--
+
+.PHONY: all
+all:
+
+It defines a variable C, which is a long string (it’s actually 1234567890 repeated 2,048 times followed by the alphabet repeated 2,048 times plus spaces for a total of 77,824 characters). Here := is used so that C is created quickly. C is designed to emulate the sort of long strings that are generated within makefiles (for example, long lists of source files with paths).
+
+Then a variable FOO is defined that manipulates C using the built-in $(subst) function. FOO emulates the sort of manipulation that occurs within makefiles (such as changing filename extensions from .c to .o).
+
+Finally, $(FOO) is evaluated 200 times to emulate the use of FOO in a small but realistically sized makefile. The makefile does nothing; there’s a dummy, empty all rule at the end.
+
+On my laptop, using GNU make 3.81, this makefile takes about 3.1 seconds to run. That’s a long time spent repeatedly manipulating C and FOO but not doing any actual building.
+
+Using the counter trick from An $(eval) Side Effect, you can figure out how many times FOO and C are evaluated in this makefile. FOO was evaluated 200 times and C 1600 times. It’s amazing how fast these evaluations can add up.
+
+But the values of C and FOO need to be calculated only once, because they don’t change. Let’s say you alter the definition of FOO to use :=:
+
+FOO := $(subst 9,NINE,$C)$(subst 8,EIGHT,$C)$(subst 7,SEVEN,$C) \
+$(subst 6,SIX,$C)$(subst 5,FIVE,$C)$(subst 4,FOUR,$C)           \
+$(subst 3,THREE,$C)$(subst 2,TWO,$C)$(subst 1,ONE,$C)
+
+This drops the runtime to 1.8 seconds, C is evaluated nine times, and FOO is evaluated just once. But, of course, that requires using := with all its problems.
+A Caching Function
+
+An alternative caching function is this simple caching scheme:
+
+cache = $(if $(cached-$1),,$(eval cached-$1 := 1)$(eval cache-$1 := $($1)))$(cache-$1)
+
+First, a function called cache is defined, which automatically caches a variable’s value the first time it is evaluated and retrieves it from the cache for each subsequent attempt to retrieve it.
+
+cache uses two variables to store the cached value of a variable (when caching variable A, the cached value is stored in cache-A) and whether the variable has been cached (when caching variable A, the has been cached flag is cached-A).
+
+First, it checks to see whether the variable has been cached; if it has, the $(if) does nothing. If it hasn’t, the cached flag is set for that variable in the first $(eval) and then the value of the variable is expanded (notice the $($1), which gets the name of the variable and then gets its value) and cached. Finally, cache returns the value from cache.
+
+To update the makefile, simply turn any reference to a variable into a call to the cache function. For example, you can modify the makefile from Example 4-1 by changing all occurrences of $(FOO) to $(call cache,FOO) using a simple find and replace. The result is shown in Example 4-2.
+
+Example 4-2. A modified version of Example 4-1 that uses the cache function
+
+C := 1234567890 ABCDEFGHIJKLMNOPQRSTUVWXYZ
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+C += $C
+
+FOO = $(subst 9,NINE,$C)$(subst 8,EIGHT,$C)$(subst 7,SEVEN,$C) \
+$(subst 6,SIX,$C)$(subst 5,FIVE,$C)$(subst 4,FOUR,$C)          \
+$(subst 3,THREE,$C)$(subst 2,TWO,$C)$(subst 1,ONE,$C)
+
+_DUMMY := $(call cache,FOO)
+--snip--
+
+.PHONY: all
+all:
+
+Running this on my machine shows that there’s now one access of FOO, the same nine accesses of C, and a runtime of 2.4 seconds. It’s not as fast as the := version (which took 1.8 seconds), but it’s still 24 percent faster. On a big makefile, this technique could make a real difference.
+Wrapping Up
+
+The fastest way to handle variables is to use := whenever you can, but it requires care and attention, and is probably best done only in a new makefile (just imagine trying to go back and reengineer an existing makefile to use :=).
+
+If you’re stuck with =, the cache function presented here can give you a speed boost that developers doing incremental short builds will especially appreciate.
+
+If it’s only necessary to change a single variable definition, it’s possible to eliminate the cache function. For example, here’s the definition of FOO changed to magically switch from being recursively defined to a simple definition:
+
+FOO = $(eval FOO := $(subst 9,NINE,$C)$(subst 8,EIGHT,$C)$(subst 7,SEVEN,$C) \
+$(subst 6,SIX,$C)$(subst 5,FIVE,$C)$(subst 4,FOUR,$C)$(subst 3,THREE,$C)     \
+$(subst 2,TWO,$C)$(subst 1,ONE,$C))$(value FOO)
+
+The first time $(FOO) is referenced, the $(eval) happens, turning FOO from a recursively defined variable to a simple definition (using :=). The $(value FOO) at the end returns the value stored in FOO, making this process transparent.
+The Trouble with Hidden Targets
+
+Take a look at the makefile in Example 4-3:
+
+Example 4-3. In this makefile, the rule to make foo also makes foo.c.
+
+.PHONY: all
+all: foo foo.o foo.c
+
+foo:
+→  touch $@ foo.c
+
+%.o: %.c
+→  touch $@
+
+It contains a nasty trap for the unwary that can cause make to report odd errors, stop the -n option from working, and prevent a speedy parallel make. It can even cause GNU make to do the wrong work and update an up-to-date file.
+
+On the face of it this makefile looks pretty simple. If you run it through GNU make, it’ll build foo (which creates the files foo and foo.c) and then use the pattern at the bottom to make foo.o from foo.c. It ends up running the following commands:
+
+touch foo foo.c
+touch foo.o
+
+But there’s a fatal flaw. Nowhere does this makefile mention that the rule to make foo actually also makes foo.c. So foo.c is a hidden target, a file that was built but that GNU make is unaware of, and hidden targets cause an endless number of problems.
+
+GNU make is very good at keeping track of targets, files that need to be built, and the dependencies between targets. But the make program is only as good as its inputs. If you don’t tell make about a relationship between two files, it won’t discover it on its own and it’ll make mistakes because it assumes it has perfect knowledge about the files and their relationships.
+
+In this example, make only works because it builds the prerequisites of all from left to right. First it encounters foo, which it builds, creating foo.c as a side effect, and then it builds foo.o using the pattern. If you change the order of the prerequisites of all so that it doesn’t build foo first, the build will fail.
+
+There are (at least!) five nasty side effects of hidden targets.
+An Unexpected Error if the Hidden Target Is Missing
+
+Suppose that foo exists, but foo.c and foo.o are missing:
+
+$ rm -f foo.c foo.o
+$ touch foo
+$ make
+No rule to make target `foo.c', needed by `foo.o'.
+
+make tries to update foo.o, but because it doesn’t know how to make foo.c (because it’s not mentioned as the target of any rule), invoking GNU make results in an error.
+The -n Option Fails
+
+The helpful -n debugging option in GNU make tells it to print out the commands that it would run to perform the build without actually running them:
+
+$ make -n 
+touch foo foo.c
+No rule to make target `foo.c', needed by `foo.o'.
+
+You’ve seen that make would actually perform two touch commands (touch foo foo.c followed by touch foo.o), but doing a make -n (with no foo* files present) results in an error. make doesn’t know that the rule for foo makes foo.c, and because it hasn’t actually run the touch command, foo.c is missing. Thus, the -n doesn’t represent the actual commands that make would run, making it useless for debugging.
+You Can’t Parallelize make
+
+GNU make provides a handy feature that allows it to run multiple jobs at once. If you have many compiles in a build, specifying the -j option (followed by a number indicating the number of jobs to run at the same time) can maximize CPU utilization and shorten the build.
+
+Unfortunately, a hidden target spoils that plan. Here’s the output from make -j3 running three jobs at once on our example makefile from Example 4-3:
+
+$ make -j3
+touch foo foo.c
+No rule to make target `foo.c', needed by `foo.o'.
+Waiting for unfinished jobs....
+
+GNU make tried to build foo, foo.o, and foo.c at the same time, and discovered that it didn’t know how to build foo.c because it had no way of knowing that it should wait for foo to be made.
+make Does the Wrong Work if the Hidden Target Is Updated
+
+Suppose the file foo.c already exists when make is run. Because make doesn’t know that the rule for foo will mess with foo.c, it’ll get updated even though it’s up-to-date. In Example 4-2, foo.c is altered by a benign touch operation that only alters the file’s timestamp, but a different operation could destroy or overwrite the contents of the file:
+
+$ touch foo.c
+$ rm -f foo foo.o
+$ make
+touch foo foo.c
+touch foo.o
+
+make rebuilds foo because it’s missing and updates foo.c at the same time, even though it was apparently up-to-date.
+You Can’t Direct make to Build foo.o
+
+You’d hope that typing make foo.o would result in GNU make building foo.o from foo.c and, if necessary, building foo.c. But make doesn’t know how to build foo.c. That just happens by accident when building foo:
+
+$ rm -f foo.c
+$ make foo.o
+No rule to make target `foo.c', needed by `foo.o'.
+
+So if foo.c is missing, make foo.o results in an error.
+
+Hopefully, you’re now convinced that hidden targets are a bad idea and can lead to all sorts of build problems.
+GNU make’s Escaping Rules
+
+Sometimes you’ll need to insert a special character in a makefile. Perhaps you need a newline inside an $(error) message, a space character in a $(subst), or a comma as the argument to a GNU make function. Those three simple tasks can be frustratingly difficult to do in GNU make; this section takes you through simple syntax that eliminates the frustration.
+
+GNU make’s use of the tab character at the start of any line containing commands is a notorious language feature, but some other special characters can also trip you up. The ways GNU make handles $, %, ?, *, [, ~, \, and # are all special.
+Dealing with $
+
+Every GNU make user is familiar with $ for starting a variable reference. It’s possible to write $(variable) (with parentheses) or ${variable} (with curly brackets) to get the value of variable, and if the variable name is a single character (such as a), you can drop the parentheses and just use $a.
+
+To get a literal $, you write $$. So to define a variable containing a single $ symbol you’d write: dollar := $$.
+Playing with %
+
+Escaping % is not as simple as $, but it needs to be done in only three situations, and the same rules apply for each: in the vpath directive, in a $(patsubst), and in a pattern or static-pattern rule.
+
+The three rules for % escaping are:
+
+    You can escape % with a single \ character (that is, \% becomes a literal %).
+
+    If you need to put a literal \ in front of a % (that is, you want the \ to not escape the %), escape it with \ (in other words, \\% becomes a literal \ followed by a % character that will be used for the pattern match).
+
+    Don’t worry about escaping \ anywhere else in a pattern. It will be treated as a literal. For example, \hello is \hello.
+
+Wildcards and Paths
+
+The symbols ?, *, [, and ] get treated specially when they appear in a filename. A makefile that has
+
+*.c:
+→  @command
+
+will actually search for all .c files in the current directory and define a rule for each. The targets (along with prerequisites and files mentioned in the include directive) are globbed (the filesystem is searched and filenames matched against the wildcard characters) if they contain a wildcard character. The globbing characters have the same meaning as in the Bourne shell.
+
+The ~ character is also handled specially in filenames and is expanded to the home directory of the current user.
+
+All of those special filename characters can be escaped with a \. For example:
+
+\*.c:
+→  @command
+
+This makefile defines a rule for the file named (literally) *.c.
+Continuations
+
+Other than the escaping function, you can also use the \ as a continuation character at the end of a line:
+
+all:         \
+prerequisite \
+something else
+→  @command
+
+Here, the rule for all has three prerequisites: prerequisite, something, and else.
+Comments
+
+You can use the # character to start a comment, and you can make it a literal with a \ escape:
+
+pound := \#
+
+Here, $(pound) is a single character: #.
+I Just Want a Newline!
+
+GNU make does its best to insulate you from the newline character. You can’t escape a newline—there’s no syntax for special characters (for example, you can’t write \n), and even the $(shell) function strips newlines from the returned value.
+
+But you can define a variable that contains a newline using the define syntax:
+
+define newline
+
+
+endef
+
+Note that this definition contains two blank lines, but using $(newline) will expand into only one newline, which can be useful for formatting error messages nicely:
+
+$(error This is an error message$(newline)with two lines)
+
+Because of GNU make’s rather liberal variable naming rules, it’s possible to define a variable called \n. So if you like to maintain a familiar look, you can do this:
+
+define \n
+
+
+endef
+
+$(error This is an error message $(\n)with two lines)
+
+We’ll look more at special variable names in the next section.
+Function Arguments: Spaces and Commas
+
+A problem that many GNU make users run into is the handling of spaces and commas in GNU make function arguments. Consider the following use of $(subst):
+
+spaces-to-commas = $(subst ,,,$1)
+
+This takes three arguments separated by commas: the from text, the to text, and the string to change.
+
+It defines a function called spaces-to-commas to convert all spaces in its argument to commas (which might be handy for making a CSV file for example). Unfortunately, it doesn’t work for two reasons:
+
+    The first argument of the $(subst) is a space. GNU make strips all leading and trailing whitespace around function arguments. In this case, the first argument is interpreted as an empty string.
+
+    The second argument is a comma. GNU make cannot distinguish between the commas used for argument separators and the comma as an argument. In addition, there’s no way to escape the comma.
+
+You can work around both issues if you know that GNU make does the whitespace stripping and separation of arguments before it does any expansion of the arguments. So if we can define a variable containing a space and a variable containing a comma, we can write the following to get the desired effect:
+
+spaces-to-commas = $(subst $(space),$(comma),$1)
+
+Defining a variable containing a comma is easy, as shown here:
+
+comma := ,
+
+But space is a bit harder. You can define a space in a couple of ways. One way is to use the fact that whenever you append to a variable (using +=), a space is inserted before the appended text:
+
+space :=
+space +=
+
+Another way is to first define a variable that contains nothing, and then use it to surround the space so that it doesn’t get stripped by GNU make:
+
+blank :=
+space := $(blank) $(blank)
+
+You can also use this technique to get a literal tab character into a variable:
+
+blank :=
+tab := $(blank)→$(blank)
+
+Much in the way that $(\n) was defined in the previous section, it’s possible to define specially named space and comma variables. GNU make’s rules are liberal enough to allow us to do this:
+
+, := ,
+
+blank :=
+space := $(blank) $(blank)
+$(space) := $(space)
+
+The first line defines a variable called , (which can be used as $(,) or even $,) containing a comma.
+
+The last three lines define a variable called space containing a space character and then use it to define a variable named (that’s right, its name is a space character) containing a space.
+
+With that definition it’s possible to write $( ) or even $ (there’s a space after that $) to get a space character. Note that doing this might cause problems in the future as make is updated, so playing tricks like this can be dangerous. If you’re averse to risks, just use the variable named space and avoid $( ). Because whitespace is special in GNU make, pushing make’s parser to the limit with tricks like $( ) might lead to breakages.
+
+Using those definitions, the spaces-to-commas function can be written as:
+
+spaces-to-commas = $(subst $( ),$(,),$1)
+
+This strange-looking definition replaces spaces with commas using subst. It works because the $( ) will get expanded by subst and will itself be a space. That space will then be the first parameter (the string that will be replaced). The second parameter is $(,), which, when expanded, becomes a ,. The result is that spaces-to-commas turns spaces into commas without confusing GNU make with the actual space and comma characters.
+The Twilight Zone
+
+It’s possible to take definitions like $( ) and $(\n) and go much further, defining variables with names like =, # or :. Here are other interesting variable definitions:
+
+# Define the $= or $(=) variable which has the value =
+equals := =
+$(equals) := =
+# Define the $# or $(#) variable which has the value #
+hash := \#
+$(hash) := \#
+# Define the $: or $(:) variable which has the value :
+colon := :
+$(colon) := :
+
+# Define the $($$) variable which has the value $
+dollar := $$
+$(dollar) := $$
+
+These definitions probably aren’t useful, but if you want to push GNU make syntax to its limits, try this:
+
++:=+
+
+Yes, that defines a variable called + containing a +.
+The Trouble with $(wildcard)
+
+The function $(wildcard) is GNU make’s globbing function. It’s a useful way of getting a list of files inside a makefile, but it can behave in unexpected ways. It doesn’t always provide the same answer as running ls. Read on to find out why and what to do about it.
+$(wildcard) Explained
+
+You can use $(wildcard) anywhere in a makefile or rule to get a list of files that match one or more glob style patterns. For example, $(wildcard *.foo) returns a list of files ending in .foo. Recall that a list is a string where list elements are separated by spaces, so $(wildcard *.foo) might return a.foo b.foo c.foo. (If a filename contains a space, the returned list may appear incorrect because there’s no way to spot the difference between the list separator—a space—and the space in a filename.)
+
+You can also call $(wildcard) with a list of patterns, so $(wildcard *.foo *.bar) returns all the files ending in .foo or .bar. The $(wildcard) function supports the following globbing operators: * (match 0 or more characters), ? (match 1 character), and [...] (matches characters, [123], or a range of characters, [a-z]).
+
+Another useful feature of $(wildcard) is that if the filename passed to it does not contain a pattern, that file is simply checked for existence. If the file exists, its name is returned; otherwise, $(wildcard) returns an empty string. Thus, $(wildcard) can be combined with $(if) to create an if-exists function:
+
+if-exists = $(if ($wildcard $1),$2,$3)
+
+if-exists has three parameters: the name of the filename to check for, what to do if the file exists, and what to do if it does not. Here’s a simple example of its use:
+
+$(info a.foo is $(call if-exists,a.foo,there,not there))
+
+This will print a.foo is there if a.foo exists, or it will print a.foo is not there if not.
+Unexpected Results
+
+Each of the following examples uses two variables to obtain a list of files ending in .foo in a particular directory: WILDCARD_LIST and LS_LIST each return the list of files ending in .foo by calling $(wildcard) and $(shell ls), respectively. The variable DIRECTORY holds the directory in which the examples look for files; for the current directory, DIRECTORY is left empty.
+
+The starting makefile looks like this:
+
+WILDCARD_LIST = wildcard returned \'$(wildcard $(DIRECTORY)*.foo)\'
+LS_LIST = ls returned \'$(shell ls $(DIRECTORY)*.foo)\'
+
+.PHONY: all
+all:
+→  @echo $(WILDCARD_LIST)
+→  @echo $(LS_LIST)
+
+With a single file a.foo in the current directory, running GNU make results in this:
+
+$ touch a.foo
+$ make
+wildcard returned 'a.foo'
+ls returned 'a.foo'
+
+Now extend the makefile so it makes a file called b.foo using touch. The makefile should look like Example 4-4:
+
+Example 4-4. When you run this makefile, ls and $(wildcard) return different results.
+
+WILDCARD_LIST = wildcard returned \'$(wildcard $(DIRECTORY)*.foo)\'
+LS_LIST = ls returned \'$(shell ls $(DIRECTORY)*.foo)\'
+
+.PHONY: all
+all: b.foo
+→ @echo $(WILDCARD_LIST)
+→ @echo $(LS_LIST)
+
+b.foo:
+→ @touch $@
+
+Running this makefile through GNU make (with just the preexisting a.foo file) results in the following surprising output:
+
+$ touch a.foo
+$ make
+wildcard returned 'a.foo'
+ls returned 'a.foo b.foo'
+
+The ls returns the correct list (because b.foo has been created by the time the all rule runs), but $(wildcard) does not; $(wildcard) appears to be showing the state before b.foo was created.
+
+Working with the .foo files in a subdirectory (not in the current working directory) results in different output, as shown in Example 4-5.
+
+Example 4-5. This time, ls and $(wildcard) return the same results.
+
+DIRECTORY=subdir/
+
+.PHONY: all
+all: $(DIRECTORY)b.foo
+→  @echo $(WILDCARD_LIST)
+→  @echo $(LS_LIST)
+
+$(DIRECTORY)b.foo:
+→  @touch $@
+
+Here, the makefile is updated so that it uses the DIRECTORY variable to specify the subdirectory subdir. There’s a single preexisting file subdir/a.foo, and the makefile will create subdir/b.foo.
+
+Running this makefile results in:
+
+$ touch subdir/a.foo
+$ make
+wildcard returned 'subdir/a.foo subdir/b.foo'
+ls returned 'subdir/a.foo subdir/b.foo'
+
+Here, both $(wildcard) and ls return the same results, and both show the presence of the two .foo files: subdir/a.foo, which existed before make was run, and subdir/b.foo, which was created by the makefile.
+
+Let’s look at one final makefile (Example 4-6) before I explain what’s happening:
+
+Example 4-6. A small change makes ls and $(wildcard) return different results.
+
+DIRECTORY=subdir/
+
+$(warning Preexisting file: $(WILDCARD_LIST))
+
+.PHONY: all
+all: $(DIRECTORY)b.foo
+→  @echo $(WILDCARD_LIST)
+→  @echo $(LS_LIST)
+$(DIRECTORY)b.foo:
+→  @touch $@
+
+In this makefile, $(warning) is used to print out a list of the .foo files that already exist in the subdirectory.
+
+Here’s the output:
+
+$ touch subdir/a.foo
+$ make
+makefile:6: Preexisting file: wildcard returned 'subdir/a.foo'
+wildcard returned 'subdir/a.foo'
+ls returned 'subdir/a.foo subdir/b.foo'
+
+Notice now that GNU make appears to be behaving like it does in Example 4-4; the subdir/b.foo file that was made by the makefile is invisible to $(wildcard) and doesn’t appear, even though it was created and ls found it.
+Unexpected Results Explained
+
+We get unexpected, and apparently inconsistent, results because GNU make contains its own cache of directory entries. $(wildcard) reads from that cache (not directly from disk like ls) to get its results. Knowing when that cache is filled is vital to understanding the results the $(wildcard) will return.
+
+GNU make fills the cache only when it is forced to (for example, when it needs to read the directory entries to satisfy a $(wildcard) or other globbing request). If you know that GNU make fills the cache only when needed, then it’s possible to explain the results.
+
+In Example 4-4, GNU make fills the cache for the current working directory when it starts. So the file b.foo doesn’t appear in the output of $(wildcard) because it wasn’t present when the cache was filled.
+
+In Example 4-5, GNU make didn’t fill the cache with entries from subdir until they were needed. The entries were first needed for the $(wildcard), which is performed after subdir/b.foo is created; hence, subdir/b.foo does appear in the $(wildcard) output.
+
+In Example 4-6, the $(warning) happens at the start of the makefile and fills the cache (because it did a $(wildcard)); hence, subdir/b.foo was missing from the output of $(wildcard) for the duration of that make.
+
+Predicting when the cache will be filled is very difficult. $(wildcard) will fill the cache, but so will use of a globbing operator like * in the target or prerequisite list of a rule. Example 4-7 is a makefile that builds two files (subdir/b.foo and subdir/c.foo) and does a couple of $(wildcard)s:
+
+Example 4-7. When GNU make fills, the $(wildcard) cache can be difficult to understand.
+
+DIRECTORY=subdir/
+
+.PHONY: all
+all: $(DIRECTORY)b.foo
+→  @echo $(WILDCARD_LIST)
+→  @echo $(LS_LIST)
+$(DIRECTORY)b.foo: $(DIRECTORY)c.foo
+→  @touch $@
+→  @echo $(WILDCARD_LIST)
+→  @echo $(LS_LIST)
+
+$(DIRECTORY)c.foo:
+→  @touch $@
+
+The output may surprise you:
+
+   $ make
+   wildcard returned 'subdir/a.foo subdir/c.foo'
+   ls returned 'subdir/a.foo subdir/c.foo'
+➊ wildcard returned 'subdir/a.foo subdir/c.foo'
+   ls returned 'subdir/a.foo subdir/b.foo subdir/c.foo'
+
+Even though the first $(wildcard) is being done in the rule that makes subdir/b.foo and after the touch that created subdir/b.foo, there’s no mention of subdir/b.foo in the output of $(wildcard) ➊. Nor is there mention of subdir/b.foo in the output of the ls.
+
+The reason is that the complete block of commands is expanded into its final form before any of the lines in the rule are run. So the $(wildcard) and $(shell ls) are done before the touch has run.
+
+The output of $(wildcard) is even more unpredictable if the make is run in parallel with the -j switch. In that case, the exact order in which the rules are run is not predictable, so the output of $(wildcard) can be even less predictable.
+
+Here’s what I recommend: don’t use $(wildcard) in a rule; use $(wildcard) in the makefile only at parsing time (before any rules start running). If you restrict the use of $(wildcard) to parsing time, you can be assured of consistent results: $(wildcard) will show the state of the filesystem before GNU make was run.
+Making Directories
+
+One common problem faced by real-world makefile hackers is the need to build a hierarchy of directories before the build, or at least before commands that use those directories can run. The most common case is that the makefile hacker wants to ensure that the directories where object files will be created exist, and they want that to happen automatically. This section looks at a variety of ways to achieve directory creation in GNU make and points out a common trap for the unwary.
+An Example Makefile
+
+The following makefile builds an object file /out/foo.o from foo.c using the GNU make built-in variable COMPILE.C to make a .o file from a .c by running the compiler.
+
+foo.c is in the same directory as the makefile, but foo.o is placed in /out/:
+
+.PHONY: all
+all: /out/foo.o
+
+/out/foo.o: foo.c
+→  @$(COMPILE.C) -o $@ $<
+
+This example works fine as long as /out/ exists. But if it does not, you’ll get an error from the compiler along the lines of:
+
+$ make
+Assembler messages:
+FATAL: can't create /out/foo.o: No such file or directory
+make: *** [/out/foo.o] Error 1
+
+Obviously, what you want is for the makefile to automatically create /out/ if it is missing.
+What Not to Do
+
+Because GNU make excels at making things that don’t exist, it seems obvious to make /out/ a prerequisite of /out/foo.o and have a rule to make the directory. That way if we need to build /out/foo.o, the directory will get created.
+
+Example 4-8 shows the reworked makefile with the directory as a prerequisite and a rule to build the directory using mkdir.
+
+Example 4-8. This makefile can end up doing unnecessary work.
+
+OUT = /out
+
+.PHONY: all
+all: $(OUT)/foo.o
+
+$(OUT)/foo.o: foo.c $(OUT)/
+→  @$(COMPILE.C) -o $@ $<
+
+$(OUT)/:
+→  mkdir -p $@
+
+For simplification, the name of the output directory is stored in a variable called OUT, and the -p option on the mkdir command is used so that it will build all the necessary parent directories. In this case the path is simple: it’s just /out/, but -p means that mkdir could make a long chain of directories in one go.
+
+This works well for this basic example, but there’s a major problem. Because the timestamp on a directory is typically updated when the directory is updated (for example, when a file is created, deleted, or renamed), this makefile can end up doing too much work.
+
+For example, just creating another file inside /out/ forces a rebuild of /out/foo.o. In a complex example, this could mean that many object files are rebuilt for no good reason, just because other files were rebuilt in the same directory.
+Solution 1: Build the Directory When the Makefile Is Parsed
+
+A simple solution to the problem in Example 4-8 is to just create the directory when the makefile is parsed. A quick call to $(shell) can achieve that:
+
+OUT = /out
+
+.PHONY: all
+all: $(OUT)/foo.o
+
+$(OUT)/foo.o: foo.c
+→  @$(COMPILE.C) -o $@ $<
+
+$(shell mkdir -p $(OUT))
+
+Before any targets are created or commands run, the makefile is read and parsed. If you put $(shell mkdir -p $(OUT)) somewhere in the makefile, GNU make will run the mkdir every time the makefile is loaded.
+
+One possible disadvantage is that if many directories need to be created, this process could be slow. And GNU make is doing unnecessary work, because it will attempt to build the directories every time you type make. Some users also don’t like this method because it creates all the directories, even if they’re not actually used by the rules in the makefile.
+
+A small improvement can be made by first testing to see whether the directory exists:
+
+ifeq ($(wildcard $(OUT)/.),)
+$(shell mkdir -p $(OUT))
+endif
+
+Here, $(wildcard) is used with a /. appended to check for the presence of a directory. If the directory is missing, $(wildcard) will return an empty string and the $(shell) will be executed.
+Solution 2: Build the Directory When all Is Built
+
+A related solution is to build the directory only when all is being built. This means that the directories won’t get created every time the makefile is parsed (which could avoid unnecessary work when you type make clean or make depend):
+
+OUT = /out
+
+.PHONY: all
+all: make_directories $(OUT)/foo.o
+
+$(OUT)/foo.o: foo.c
+→  @$(COMPILE.C) -o $@ $<
+
+.PHONY: make_directories
+make_directories: $(OUT)/
+
+$(OUT)/:
+→  mkdir -p $@
+
+This solution is messy because you must specify make_directories as a prerequisite of any target that the user might specify after make. If you don’t, you could run into the situation in which the directories have not been built. You should avoid this technique, especially because it will completely break parallel builds.
+Solution 3: Use a Directory Marker File
+
+If you look back at Example 4-8, you’ll notice one rather nice feature: it builds only the directory needed for a specific target. In a more complex example (where there were many such directories to be built) it would be nice to be able to use something like that solution while avoiding the problem of constant rebuilds as the timestamp on the directory changes.
+
+To do that, you can store a special empty file, which I call a marker file, in the directory and use that as the prerequisite. Because it’s a normal file, normal GNU make rebuilding rules apply and its timestamp is not affected by changes in its directory.
+
+If you add a rule to build the marker file (and to ensure that its directory exists), you can specify a directory as a prerequisite by specifying the marker file as a proxy for the directory.
+
+OUT = /out
+.PHONY: all
+all: $(OUT)/foo.o
+
+$(OUT)/foo.o: foo.c $(OUT)/.f
+→  @$(COMPILE.C) -o $@ $<
+$(OUT)/.f:
+→  mkdir -p $(dir $@)
+→  touch $@
+
+Notice how the rule to build $(OUT)/.f creates the directory, if necessary, and touches the .f file. Because the target is a file (.f), it can safely be used as a prerequisite in the $(OUT)/foo.o rule.
+
+The $(OUT)/.f rule uses the GNU make function $(dir FILE) to extract the directory portion of the target (which is the path to the .f file) and passes that directory to mkdir.
+
+The only disadvantage here is that it’s necessary to specify the .f files for every rule that builds a target in a directory that might need to be created.
+
+To make this easy to use, you can create functions that automatically make the rule to create a directory and that calculate the correct name for .f files:
+
+marker = $1.f
+make_dir = $(eval $1.f: ; @mkdir -p $$(dir $$@) ; touch $$@)
+
+OUT = /out
+.PHONY: all
+all: $(OUT)/foo.o
+
+$(OUT)/foo.o: foo.c $(call marker,$(OUT))
+→  @$(COMPILE.C) -o $@ $<
+
+$(call make-dir,$(OUT))
+
+Here, marker and make-dir are used to simplify the makefile.
+Solution 4: Use an Order-Only Prerequisite to Build the Directory
+
+In GNU make 3.80 and later, another solution is to use an order-only prerequisite. An order-only prerequisite is built before the target as normal but does not cause the target to be rebuilt when the prerequisite is changed. Usually, when a prerequisite is rebuilt, the target will also be rebuilt because GNU make assumes that the target depends on the prerequisite. Order-only prerequisites are different: they get built before the target, but the target isn’t updated just because an order-only prerequisite was built.
+
+This is exactly what we would’ve liked in the original broken example in Example 4-8—to make sure that the directory gets rebuilt as needed but doesn’t rebuild the .o file every time the directory’s timestamp changes.
+
+Order-only prerequisites are any prerequisites that come after the bar symbol | and must be placed after any normal prerequisites.
+
+In fact, just adding this single character to the broken example in Example 4-8 can make it work correctly:
+
+   OUT = /out
+
+   .PHONY: all
+   all: $(OUT)/foo.o
+   $(OUT)/foo.o: foo.c | $(OUT)/
+   →  @$(COMPILE.C) -o $@ $<
+
+➊ $(OUT)/:
+   →  mkdir -p $@
+
+The rule for $(OUT)/ ➊ will be run if the directory is missing, but changes to the directory will not cause $(OUT)/foo.o to be rebuilt.
+Solution 5: Use Pattern Rules, Second Expansion, and a Marker File
+
+In a typical makefile (not simple examples in books like this), targets are usually built using pattern rules, like so:
+
+OUT = /out
+.PHONY: all
+all: $(OUT)/foo.o
+
+$(OUT)/%.o: %.c
+→  @$(COMPILE.C) -o $@ $<
+
+But we can change this pattern rule to build directories automatically using marker files.
+
+In GNU make 3.81 and later, there is an exciting feature called second expansion (which is enabled by specifying the .SECONDEXPANSION target in the makefile). With second expansion, the prerequisite list of any rule undergoes a second expansion (the first expansion happens when the makefile is read) just before the rule is used. By escaping any $ signs with a second $, it’s possible to use GNU make automatic variables (such as $@) in the prerequisite list.
+
+Using a marker file for each directory and second expansion, you can create a makefile that automatically creates directories only when necessary with a simple addition to the prerequisite list of any rule:
+
+OUT = /tmp/out
+
+.SECONDEXPANSION:
+
+all: $(OUT)/foo.o
+
+$(OUT)/%.o: %.c $$(@D)/.f
+→  @$(COMPILE.C) -o $@ $<
+
+%/.f:
+→  mkdir -p $(dir $@)
+→  touch $@
+
+.PRECIOUS: %/.f
+
+The pattern rule used to make .o files has a special prerequisite $$(@D)/.f, which uses the second expansion feature to obtain the directory in which the target is to be built. It does this by applying the D modifier to $@, which gets the directory of the target (while $@ on its own obtains the name of the target).
+
+That directory will be built by the %/.f pattern rule in the process of building a .f file. Notice that the .f files are marked as precious so that GNU make will not delete them. Without this line, the .f files are considered to be useless intermediate files and would be cleaned up by GNU make on exit.
+Solution 6: Make the Directory in Line
+
+It’s also possible to make directories inside the rules that need them; this is called making directories in line. For example:
+
+OUT = /out
+
+.PHONY: all
+all: $(OUT)/foo.o
+
+$(OUT)/foo.o: foo.c
+→  mkdir -p $(@D)
+→  @$(COMPILE.C) -o $@ $<
+
+Here I’ve modified the $(OUT)/foo.o rule so that it makes the directory using -p each time. This only works if a small number of rules need to create directories. Updating every rule to add the mkdir is laborious and likely to result in some rules being missed.
+GNU make Meets Filenames with Spaces
+
+GNU make treats the space character as a list separator; any string containing spaces can be thought of as a list of space-delimited words. This is fundamental to GNU make, and space-separated lists abound. Unfortunately, that presents a problem when filenames contain spaces. This section looks at how to work around the “spaces in filenames problem.”
+An Example Makefile
+
+Suppose you are faced with creating a makefile that needs to deal with two files named foo bar and bar baz, with foo bar built from bar baz. Filenames that include spaces can be tricky to work with.
+
+A naive way to write this in a makefile would be:
+
+foo bar: bar baz
+→ @echo Making $@ from $<
+
+But that doesn’t work. GNU make can’t differentiate between cases where spaces are part of the filename and cases where they’re not. In fact, the naively written makefile is exactly the same as:
+
+foo: bar baz
+→ @echo Making $@ from $<
+bar: bar baz
+→ @echo Making $@ from $<
+
+Placing quotations marks around the filenames doesn’t work either. If you try this:
+
+"foo bar": "bar baz"
+→ @echo Making $@ from $<
+
+GNU make thinks you’re talking about four files called "foo, bar", "bar, and baz". GNU make ignores the double quotes and splits the list by spaces as it normally would.
+Escape Spaces with \
+
+One way to deal with the spaces problem is to use GNU make’s escaping operator, \, which you can use to escape sensitive characters (such as a literal # so that it doesn’t start a comment or a literal % so that it isn’t used as a wildcard).
+
+Thus, use \ to escape spaces in rules for filenames with spaces. Our example makefile can then be rewritten as follows:
+
+foo\ bar: bar\ baz
+→ @echo Making $@ from $<
+
+and it will work correctly. The \ is removed during the parsing of the makefile, so the actual target and prerequisite names correctly contain spaces. This will be reflected in the automatic variables (such as $@).
+
+When foo bar needs updating, the simple makefile will output:
+
+$ make
+Making foo bar from bar baz
+
+You can also use the same escaping mechanism inside GNU make’s $(wildcard) function. To check for the existence of foo bar, you can use $(wildcard foo\ bar) and GNU make will treat foo bar as a single filename to look for in the filesystem.
+
+Unfortunately, GNU make’s other functions that deal with space-separated lists do not respect the escaping of spaces. The output of $(sort foo\ bar) for example, is the list bar foo\, not foo\ bar as you might expect. In fact, $(wildcard) is the only GNU make function that respects the \ character to escape a space.
+
+This leads to a problem if you have to deal with the automatic variables that contain lists of targets. Consider this slightly more complicated example:
+
+foo\ bar: bar\ baz a\ b
+→ @echo Making $@ from $<
+
+Now foo bar has two prerequisites bar baz and a b. What’s the value of $^ (the list of all prerequisites) in this case? It’s bar baz a b: the escaping is gone, and even if it weren’t gone, the fact that only $(wildcard) respects the \ means that it would be useless. $^ is, from GNU make’s perspective, a list with four elements.
+
+Looking at the definitions of the automatic variables tells us which are safe to use in the presence of spaces in filenames. Table 4-1 shows each automatic variable and whether it is safe.
+
+Table 4-1. Safety of Automatic Variables
+
+Automatic variable
+	
+
+Is it safe?
+
+$@
+	
+
+Yes
+
+$<
+	
+
+Yes
+
+$%
+	
+
+Yes
+
+$*
+	
+
+Yes
+
+$?
+	
+
+No
+
+$^
+	
+
+No
+
+$+
+	
+
+No
+
+Those that are inherently lists ($?, $^, and $+) are not safe because GNU make lists are separated by spaces; the others are safe.
+
+And it gets a little worse. Even though the first four automatic variables in the table are safe to use, their modified versions with D and F suffixes (which extract the directory and filename portions of the corresponding automatic variable) are not. This is because they are defined in terms of the dir and notdir functions.
+
+Consider this example makefile:
+
+/tmp/foo\ bar/baz: bar\ baz a\ b
+→  @echo Making $@ from $<
+
+The value of $@ is /tmp/foo bar/baz as expected, but the value of $(@D) is /tmp bar (as opposed to /tmp/foo bar) and the value of $(@F) is foo baz (instead of just baz).
+Turn Spaces into Question Marks
+
+Another way to deal with the spaces problem is to turn spaces into question marks. Here’s the original makefile transformed:
+
+foo?bar: bar?baz
+→  @echo Making $@ from $<
+
+Because GNU make does globbing of target and prerequisite names (and respects any spaces found), this will work. But the results are inconsistent.
+
+If foo bar exists when this makefile runs, the pattern foo?bar will get turned into foo bar and that value will be used for $@. If that file were missing when the makefile is parsed, the pattern (and hence $@) remains as foo?bar.
+
+Another problem also exists: ? could match something other than a space. If there’s a file called foombar on the system, for example, the makefile may end up working on the wrong file.
+
+To get around this problem, Robert Mecklenburg defines two functions to add and remove spaces automatically in Managing Projects with GNU Make, 3rd edition (O’Reilly, 2004). The sq function turns every space into a question mark (sq means space to question mark); the qs function does the opposite (it turns every question mark into a space). Here’s the updated makefile using two functions (sq and qs) to add and remove question marks. This works unless any filename contains a question mark but requires wrapping all uses of the filenames in calls to sq and qs.
+
+sp :=
+sp +=
+qs = $(subst ?,$(sp),$1)
+sq = $(subst $(sp),?,$1)
+
+$(call sq,foo bar): $(call sq,bar baz)
+→ @echo Making $(call qs,$@) from $(call qs,$<)
+
+Either way, because we still can’t be sure whether automatic variables will have question marks in them, using the list-based automatic variables or any GNU make list functions is still impossible.
+My Advice
+
+Given that GNU make has difficulty with spaces in filenames, what can you do? Here’s my advice:
+
+Rename your files to avoid spaces if possible.
+
+    However, this is impossible for many people because the spaces in filenames may have been added by a third party.
+Use 8.3 filenames.
+
+    If you are working with Windows, it may be possible to use short, 8.3 filenames, which allows you to still have spaces on disk but avoid them in the makefile.
+Use \ for escaping.
+
+    If you need the spaces, escape them with \, which does give consistent results. Just be sure to avoid the automatic variables listed as not safe in Table 4-1.
+
+If you use \ for escaping and you need to manipulate lists of filenames that contain spaces, the best thing to do is substitute spaces with some other character and then change them back again.
+
+For example, the s+ and +s functions in the following code change escaped spaces to + signs and back again. Then you can safely manipulate lists of filenames using all the GNU make functions. Just be sure to remove the + signs before using these names in a rule.
+
+space :=
+space +=
+
+s+ = $(subst \$(space),+,$1)
++s = $(subst +,\$(space),$1)
+
+Here’s an example using them to transform a list of source files with escaped spaces into a list of object files, which are then used to define the prerequisites of an all rule:
+
+SRCS := a\ b.c c\ d.c e\ f.c
+SRCS := $(call s+,$(SRCS))
+
+OBJS := $(SRCS:.c=.o)
+
+all: $(call +s,$(OBJS))
+
+The source files are stored in SRCS with spaces in filenames escaped. So SRCS contains three files named a b.c, c d.c, and e f.c. GNU make’s \ escaping is used to preserve the escaped spaces in each name. Transforming SRCS into a list of objects in OBJS is done in the usual manner using .c=.o to replace each .c extension with .o, but first SRCS is altered using the s+ function so the escaped spaces become + signs. As a result, GNU make will see SRCS as a list of three elements, a+b.c, c+d.c, and e+f.c, and changing the extension will work correctly. When OBJS is used later in the makefile, the + signs are turned back into escaped spaces using a call to the function +s.
+Path Handling
+
+Makefile creators often have to manipulate filesystem paths, but GNU make provides few functions for path manipulation. And cross-platform make is difficult due to differences in path syntax. This section explains ways to manipulate paths in GNU make and navigate through the cross-platform minefield.
+Target Name Matching
+
+Look at the following example makefile and suppose that ../foo is missing. Does the makefile manage to create it?
+
+.PHONY: all
+all: ../foo
+
+.././foo:
+→ touch $@
+
+If you run that makefile with GNU make, you might be surprised to see the following error:
+
+$ make
+make: *** No rule to make target `../foo', needed by `all'. Stop.
+
+If you change the makefile to this:
+
+.PHONY: all
+all: ../foo
+
+./../foo:
+→ touch $@
+
+you’ll find that it works as expected and performs a touch ../foo.
+
+The first makefile fails because GNU make doesn’t do path manipulation on target names, so it sees two different targets called ../foo and .././foo, and fails to make the connection between the two. The second makefile works because I lied in the preceding sentence. GNU make does do a tiny bit of path manipulation: it will strip leading ./ from target names. So in the second makefile both targets are ../foo, and it works as expected.
+
+The general rule with GNU make targets is that they are treated as literal strings without interpreting them in any way. Therefore, it’s essential that when you’re referring to a target in a makefile, you always ensure that the same string is used.
+Working with Path Lists
+
+It bears repeating that GNU make lists are just strings in which any whitespace is considered a list separator. Consequently, paths with spaces in them are not recommended because it makes using many of GNU make’s built-in functions impossible, and spaces in paths cause problems with targets.
+
+For example, suppose a target is /tmp/sub directory/target, and we write a rule for it like this:
+
+/tmp/sub directory/target:
+→ @do stuff
+
+GNU make will actually interpret that as two rules, one for /tmp/sub and one for directory/target, just as if you’d written this:
+
+/tmp/sub:
+→ @do stuff
+directory/target:
+→ @do stuff
+
+You can work around that problem by escaping the space with \, but that escape is poorly respected by GNU make (it works only in target names and the $(wildcard) function).
+
+Unless you must use them, avoid spaces in target names.
+Lists of Paths in VPATH and vpath
+
+Another place that lists of paths appear in GNU make is when specifying the VPATH or in a vpath directive used to specify where GNU make finds prerequisites. For example, it’s possible to set the VPATH to search for source files in a list of : or whitespace separated paths:
+
+VPATH = ../src:../thirdparty/src /src
+
+vpath %c ../src:../thirdparty/src /src
+
+GNU make will split that path correctly at either colons or whitespace. On Windows systems, the native builds of GNU make use ; as the path separator for VPATH (and vpath) because : is needed for drive letters. On Windows, GNU make actually tries to be smart and splits paths on colons unless it looks like a drive letter (one letter followed by a colon). This drive letter intelligence actually creates a problem if you have a directory in the path whose name is a single letter: in that case you must use ; as the path separator. Otherwise, GNU make will think it’s a drive:
+
+VPATH = ../src;../thirdparty/src /src
+
+vpath %c ../src;../thirdparty/src /src
+
+On both POSIX and Windows systems, a space in a path is a separator in a VPATH and vpath. So using spaces is the best bet for cross-platform makefiles.
+Using / or \
+
+On POSIX systems / is the path separator, and on Windows systems it’s \. It’s common to see paths being built up in makefiles like this:
+
+SRCDIR := src
+MODULE_DIR := module_1
+
+MODULE_SRCS := $(SRCDIR)/$(MODULE_DIR)
+
+It would be ideal to remove the POSIX-only / there and replace it with something that would work with a different separator. One way to do that is to define a variable called / (GNU make lets you get away with using almost anything as a variable name) and use it in place of /:
+
+/ := /
+
+SRCDIR := src
+MODULE_DIR := module_1
+
+MODULE_SRCS := $(SRCDIR)$/$(MODULE_DIR)
+
+If that makes you uncomfortable, just call it SEP:
+
+SEP := /
+
+SRCDIR := src
+MODULE_DIR := module_1
+
+MODULE_SRCS := $(SRCDIR)$(SEP)$(MODULE_DIR)
+
+Now when you switch to Windows, you can just redefine / (or SEP) to \. It’s difficult to assign a literal \ on its own as a variable value (because GNU make interprets it as a line continuation and it can’t be escaped), so it’s defined here using $(strip).
+
+/ := $(strip \)
+
+SRCDIR := src
+MODULE_DIR := module_1
+
+MODULE_SRCS := $(SRCDIR)$/$(MODULE_DIR)
+
+However, note that the Windows builds of GNU make will also accept / as a path separator, so weird paths like c:/src are legal. Using those paths will simplify the makefile, but be careful when passing them to a native Windows tool that expects \ separated paths. If that’s necessary, use this instead:
+
+forward-to-backward = $(subst /,\,$1)
+
+This simple function will convert a forward slash path to a backslash path.
+Windows Oddity: Case Insensitive but Case Preserving
+
+On POSIX systems filenames are case sensitive; on Windows they are not. On Windows the files File, file, and FILE are all the same file. But an oddity with Windows is that the first time a file is accessed, the specific case used is recorded and preserved. Thus, if we touch File, it will appear as File in the filesystem (but can be accessed as FILE, file, or any other case combination).
+
+By default, GNU make does case-sensitive target comparisons, so the following makefile does not do what you might expect:
+
+.PHONY: all
+all: File
+
+file:
+→ @touch $@
+
+As is, this file causes an error, but you can compile GNU make on Windows to do case-insensitive comparisons instead (with the build HAVE_CASE_INSENSITIVE_FS option).
+
+This oddity is more likely to arise when a target specified in a makefile is also found in a wildcard search because the operating system may return a different case than the case used in the makefile. The target names may differ in case, and that may cause an unexpected No rule to make error.
+Built-in Path Functions and Variables
+
+You can determine the current working directory in GNU make using the built-in CURDIR. Note that CURDIR will follow symlinks. If you are in /foo but /foo is actually a symlink to /somewhere/foo, CURDIR will report the directory as /somewhere/foo. If you need the non-symlink-followed directory name, use the value of the environment variable PWD:
+
+CURRENT_DIRECTORY := $(PWD)
+
+But be sure to grab its value before any other part of the makefile has changed PWD: it can be altered, just like any other variable imported from the environment.
+
+You can also find the directory in which the current makefile is stored using the MAKEFILE_LIST variable that was introduced in GNU make 3.80. At the start of a makefile, it’s possible to extract its directory as follows:
+
+CURRENT_MAKEFILE := $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+MAKEFILE_DIRECTORY := $(dir $(CURRENT_MAKEFILE))
+
+GNU make has functions for splitting paths into components: dir, notdir, basename, and suffix.
+
+Consider the filename /foo/bar/source.c stored in the variable FILE. You can use the functions dir, notdir, basename, and suffix to extract the directory, filename, and suffix. So to get the directory, for example, use $(dir $(FILE)). Table 4-2 shows each of these functions and its result.
+
+Table 4-2. Results of dir, notdir, basename, and suffix
+
+Function
+	
+
+Result
+
+dir
+	
+
+/foo/bar/
+
+notdir
+	
+
+source.c
+
+basename
+	
+
+source
+
+suffix
+	
+
+.c
+
+You can see that the directory, the non-directory part, the suffix (or extension), and the non-directory part without the suffix have been extracted. These four functions make filename manipulation easy. If no directory was specified, GNU make uses the current directory (./). For example, suppose that FILE was just source.c. Table 4-3 shows the result for each function.
+
+Table 4-3. Results of dir, notdir, basename, and suffix with No Directory Specified
+
+Function
+	
+
+Result
+
+dir
+	
+
+./
+
+notdir
+	
+
+source.c
+
+basename
+	
+
+source
+
+suffix
+	
+
+.c
+
+Because these functions are commonly used in conjunction with GNU make’s automatic variables (like $@), GNU make provides a modifier syntax. Appending D or F to any automatic variable is equivalent to calling $(dir) or $(notdir) on it. For example, $(@D) is equivalent to $(dir $@) and $(@F) is the same as $(notdir $@).
+Useful Functions in 3.81: abspath and realpath
+
+realpath is a GNU make wrapper for the C library realpath function, which removes ./, resolves ../, removes duplicated /, and follows symlinks. The argument to realpath must exist in the filesystem. The path returned by realpath is absolute. If the path does not exist, the function returns an empty string.
+
+For example, you could find the full path of the current directory like this: current := $(realpath ./).
+
+abspath is similar but does not follow symlinks, and its argument does not have to refer to an existing file or directory.
+Usman’s Law
+
+make clean doesn’t make clean. That’s Usman’s law (named after a smart coworker of mine who spent months working with real-world makefiles). make clean is intended to return to a state in which everything will be rebuilt from scratch. Often it doesn’t. Read on to find out why.
+The Human Factor
+
+The clean rule from the OpenSSL makefile looks like this:
+
+clean:
+→  rm -f *.o *.obj lib tags core .pure .nfs* *.old *.bak fluff $(EXE)
+
+Notice how it’s a long list of clearly human-maintained directories, patterns, and filenames that need to be deleted to get back to a clean state. Human maintenance means human error. Suppose someone adds a rule that creates a temporary file with a fixed name. That temporary file should be added to the clean rule, but it most likely won’t be.
+
+Usman’s law strikes.
+Poor Naming
+
+Here’s a snippet found in many automatically generated makefiles:
+
+mostlyclean::
+→ rm -f *.o
+
+clean:: mostlyclean
+→ -$(LIBTOOL) --mode=clean rm -f $(program) $(programs)
+→ rm -f $(library).a squeeze *.bad *.dvi *.lj
+
+extraclean::
+→ rm -f *.aux *.bak *.bbl *.blg *.dvi *.log *.pl *.tfm *.vf *.vpl
+→ rm -f *.*pk *.*gf *.mpx *.i *.s *~ *.orig *.rej *\#*
+→ rm -f CONTENTS.tex a.out core mfput.* texput.* mpout.*
+
+In this example, three sorts of clean appear to have different degrees of cleanliness: mostlyclean, clean, and extraclean.
+
+mostlyclean just deletes the object files compiled from source. clean does that plus deletes the generated library and a few other files. You’d think that extraclean would delete more than the other two, but it actually deletes a different set of files. And I’ve seen makefiles with reallyclean, veryclean, deepclean, and even partiallyclean rules!
+
+When you can’t tell from the naming what does what, it can easily lead to potential problems down the line.
+
+Usman’s law strikes again.
+Silent Failure
+
+Here’s another makefile snippet that works some of the time:
+
+clean:
+→ @-rm *.o &> /dev/null
+
+The @ means that the command isn’t echoed. The - means that any error returned is ignored and all output is redirected with &> to /dev/null, making it invisible. Because no -f is on the rm command, any failure (from say, permissions problems) will go totally unnoticed.
+
+Usman’s law strikes again.
+Recursive Clean
+
+Many makefiles are recursive, and make clean must be recursive too, so you see the following pattern:
+
+SUBDIRS = library executable
+
+.PHONY: clean
+clean:
+→ for dir in $(SUBDIRS); do \
+→ $(MAKE) -C $$dir clean; \
+→ done
+
+The problem with this is that it means make clean has to work correctly in every directory in SUBDIR, leading to more opportunity for error.
+
+Usman’s law strikes again.
+Pitfalls and Benefits of GNU make Parallelization
+
+Many build processes run for hours, so build managers commonly type make and go home for the night. GNU make’s solution to this problem is parallel execution: a simple command line option that causes GNU make to run jobs in parallel using the dependency information in the makefile to run them in the correct order.
+
+In practice, however, GNU make parallel execution is severely limited by the fact that almost all makefiles are written with the assumption that their rules will run in series. Rarely do makefile authors think in parallel when writing their makefiles. That leads to hidden traps that either cause the build to fail with a fatal error or, worse, build “successfully” but result in incorrect binaries when GNU make is run in parallel mode.
+
+This section looks at GNU make’s parallel pitfalls and how to work around them to get maximum parallelism.
+Using -j (or -jobs)
+
+To start GNU make in parallel mode, you can specify either the -j or --jobs option on the command line. The argument to the option is the maximum number of processes that GNU make will run in parallel.
+
+For example, typing make --jobs=4 allows GNU make to run up to four subprocesses in parallel, which would give a theoretical maximum speedup of 4×. However, the theoretical time is severely limited by restrictions in the makefile. To calculate the maximum actual speedup, you use Amdahl’s law (which is covered in Amdahl’s Law and the Limits of Parallelization).
+
+One simple but annoying problem found in parallel GNU make is that because the jobs are no longer run serially (and the order depends on the timing of jobs), the output from GNU make will be sorted randomly depending on the actual order of job execution.
+
+Fortunately, that problem has been addressed in GNU make 4.0 with the --output-sync option described in Chapter 1.
+
+Consider the example in Example 4-9:
+
+Example 4-9. A simple makefile to illustrate parallel making
+
+.PHONY: all
+all: t5 t4 t1
+→ @echo Making $@
+
+t1: t3 t2
+→ touch $@
+
+t2:
+→ cp t3 $@
+
+t3:
+→ touch $@
+
+t4:
+→ touch $@
+
+t5:
+→ touch $@
+
+It builds five targets: t1, t2, t3, t4, and t5. All are simply touched except for t2, which is copied from t3.
+
+Running Example 4-9 through standard GNU make without a parallel option gives the output:
+
+$ make
+touch t5
+touch t4
+touch t3
+cp t3 t2
+touch t1
+Making all
+
+The order of execution will be the same each time because GNU make will follow the prerequisites depth first and from left to right. Note that the left-to-right execution (in the all rule for example, t5 is built before t4, which is built before t1) is part of the POSIX make standard.
+
+Now if make is run in parallel mode, it’s clear that t5, t4, and t1 can be run at the same time because there are no dependencies between them. Similarly, t3 and t2 do not depend on each other, so they can be run in parallel.
+
+The output of a parallel run of Example 4-9 might be:
+
+$ make --jobs=16
+touch t4
+touch t5
+touch t3
+cp t3 t2
+touch t1
+Making all
+
+Or even:
+
+$ make --jobs=16
+touch t3
+cp t3 t2
+touch t4
+touch t1
+touch t5
+Making all
+
+This makes any process that examines log files to check for build problems (such as diffing log files) difficult. Unfortunately, there’s no easy solution for this in GNU make without the --output-sync option, so you’ll just have to live with it unless you upgrade to GNU make 4.0.
+Missing Dependencies
+
+The example in Example 4-9 has an additional problem. The author fell into the classic left-to-right trap when writing the makefile, so when it’s run in parallel, it’s possible for the following to happen:
+
+$ make --jobs=16
+touch t5
+touch t4
+cp t3 t2
+cp: cannot stat `t3': No such file or directory
+make: *** [t2] Error 1
+
+The reason is that when run in parallel, the rule to build t2 can occur before the rule to build t3, and t2 needs t3 to have already been built. This didn’t happen in the serial case because of the left-to-right assumption: the rule to build t1 is t1: t3 t2, which implies that t3 will be built before t2.
+
+But no actual dependency exists in the makefile that states that t3 must be built before t2. The fix is simple: just add t2: t3 to the makefile.
+
+This is a simple example of the real problem of missing or implicit (left-to-right) dependencies that plagues makefiles when run in parallel. If a makefile breaks when run in parallel, it’s worth looking for missing dependencies straightaway because they are very common.
+The Hidden Temporary File Problem
+
+Another way GNU make can break when running in parallel is if multiple rules use the same temporary file. Consider the example makefile in Example 4-10:
+
+Example 4-10. A hidden temporary file that breaks parallel builds
+
+TMP_FILE := /tmp/scratch_file
+
+.PHONY: all
+all: t
+
+t: t1 t2
+→ cat t1 t2 > $@
+
+t1:
+→ echo Output from $@ > $(TMP_FILE)
+→ cat $(TMP_FILE) > $@
+
+t2:
+→ echo Output from $@ > $(TMP_FILE)
+→ cat $(TMP_FILE) > $@
+
+Run without a parallel option, GNU make produces the following output:
+
+$ make
+echo Output from t1 > /tmp/scratch_file
+cat /tmp/scratch_file > t1
+echo Output from t2 > /tmp/scratch_file
+cat /tmp/scratch_file > t2
+cat t1 t2 > t
+
+and the t file contains:
+
+Output from t1
+Output from t2
+
+But run in parallel, Example 4-10 gives the following output:
+
+$ make --jobs=2
+echo Output from t1 > /tmp/scratch_file
+echo Output from t2 > /tmp/scratch_file
+cat /tmp/scratch_file > t1
+cat /tmp/scratch_file > t2
+cat t1 t2 > t
+
+Now t contains:
+
+Output from t2
+Output from t2
+
+This occurs because no dependency exists between t1 and t2 (because neither requires the output of the other), so they can run in parallel. In the output, you can see that they are running in parallel but that the output from the two rules is interleaved. Because the two echo statements ran first, t2 overwrote the output of t1, so the temporary file (shared by both rules) had the wrong value when it was finally cated to t1, resulting in the wrong value for t.
+
+This example may seem contrived, but the same thing happens in real makefiles when run in parallel, resulting in either broken builds or the wrong binary being built. The yacc program for example, produces temporary files called y.tab.c and y.tab.h. If more than one yacc is run in the same directory at the same time, the wrong files could be used by the wrong process.
+
+A simple solution for the makefile in Example 4-10 is to change the definition of TMP_FILE to TMP_FILE = /tmp/scratch_file.$@, so its name will depend on the target being built. Now a parallel run would look like this:
+
+$ make --jobs=2
+echo Output from t1 > /tmp/scratch_file.t1
+echo Output from t2 > /tmp/scratch_file.t2
+cat /tmp/scratch_file.t1 > t1
+cat /tmp/scratch_file.t2 > t2
+cat t1 t2 > t
+
+A related problem occurs when multiple jobs in the makefile write to a shared file. Even if they never read the file (for example, they might write to a log file), locking the file for write access can cause competing jobs to stall, reducing the overall performance of the parallel build.
+
+Consider the example makefile in Example 4-11 that uses the lockfile command to lock a file and simulate write locking. Although the file is locked, each job waits for a number of seconds:
+
+Example 4-11. Locking on shared files can lock a parallel build and make it run serially.
+
+LOCK_FILE := lock.me
+
+.PHONY: all
+all: t1 t2
+→ @echo done.
+
+t1:
+→ @lockfile $(LOCK_FILE)
+→ @sleep 10
+→ @rm -f $(LOCK_FILE)
+→ @echo Finished $@
+t2:
+→ @lockfile $(LOCK_FILE)
+→ @sleep 20
+→ @rm -f $(LOCK_FILE)
+→ @echo Finished $@
+
+Running Example 4-11 in a serial build takes about 30 seconds:
+
+$ time make
+Finished t1
+Finished t2
+done.
+make 0.01s user 0.01s system 0% cpu 30.034 total
+
+But it isn’t any faster in parallel, even though t1 and t2 should be able to run in parallel:
+
+$ time make -j4
+Finished t1
+Finished t2
+done.
+make -j4 0.01s user 0.02s system 0% cpu 36.812 total
+
+It’s actually slower because of the way lockfile detects lock availability. As you can imagine, write locking a file could cause similar delays in otherwise parallel-friendly makefiles.
+
+Related to the file locking problem is a danger concerning archive (ar) files. If multiple ar processes were to run simultaneously on the same archive file, the archive could be corrupted. Locking around archive updates is necessary in a parallel build; otherwise, you’ll need to prevent your dependencies from running multiple ar commands on the same file at the same time.
+
+One way to prevent parallelism problems is to specify .NOTPARALLEL in a makefile. If this is seen, the entire make execution will be run in series and the -j or --jobs command line option will be ignored. .NOTPARALLEL is a very blunt tool because it affects an entire invocation of GNU make, but it could be handy in a recursive make situation with, for example, a third-party makefile that is not parallel safe.
+The Right Way to Do Recursive make
+
+GNU make is smart enough to share parallelism across sub-makes if a makefile using $(MAKE) is careful about how it calls sub-makes. GNU make has a message passing mechanism that works across most platforms (Windows support was added in GNU make 4.0) and enables sub-makes to use all the available jobs specified through -j or --jobs by passing tokens across pipes between the make processes.
+
+The only serious gotcha is that you must write your makefile in a way that actually allows your sub-makes to run in parallel. The classic recursive make style that uses a shell for loop to process each sub-make doesn’t allow for more than one sub-make to run at once. For example:
+
+SUBDIRS := foo bar baz
+
+.PHONY: all
+all:
+→ for d in $(SUBDIRS);     \
+→ do                       \
+→ $(MAKE) –directory=$$d;  \
+→ done
+
+This code has a big problem: if sub-make fails, the make will look like it has succeeded. It’s possible to fix that, but the fixes become more and more complicated: other approaches are better.
+
+When run in parallel mode, the all rule walks through each subdirectory and waits for its $(MAKE) to complete. Even though each of those sub-makes will be able to run in parallel, the overall make does not, meaning a less than ideal speedup. For example, if the make in the bar directory is capable of running only four jobs at once, then running on a 16-core machine won’t make the build any faster than on one with just 4 cores.
+
+The solution is to remove the for loop and replace it with a single rule for each directory:
+
+SUBDIRS := foo bar baz
+
+.PHONY: all $(SUBDIRS)
+all: $(SUBDIRS)
+
+$(SUBDIRS):
+→ $(MAKE) --directory=$@
+
+Each directory is considered to be a phony target, because the directory doesn’t actually get built.
+
+Now each directory can run while the others are running, and parallelism is maximized; it’s even possible to have dependencies between directories causing some sub-makes to run before others. Directory dependencies can be handy when it’s important that one sub-make runs before another.
+Amdahl’s Law and the Limits of Parallelization
+
+Additionally, there are real limits to the amount of parallelization that is possible in a project. Look at Example 4-12:
+
+Example 4-12. A makefile with sleep used to simulate jobs that take time to complete
+
+.PHONY: all
+all: t
+→ @echo done
+t: t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12
+→ @sleep 10
+→ @echo Made $@
+
+t1:
+→ @sleep 11
+→ @echo Made $@
+
+t2:
+→ @sleep 4
+→ @echo Made $@
+
+t3: t5
+→ @sleep 7
+→ @echo Made $@
+
+t4:
+→ @sleep 9
+→ @echo Made $@
+
+t5: t8
+→ @sleep 10
+→ @echo Made $@
+
+t6:
+→ @sleep 2
+→ @echo Made $@
+
+t7:
+→ @sleep 12
+→ @echo Made $@
+
+t8:
+→ @sleep 3
+→ @echo Made $@
+
+t9: t10
+→ @sleep 4
+→ @echo Made $@
+
+t10:
+→ @sleep 6
+→ @echo Made $@
+
+t11: t12
+→ @sleep 1
+→ @echo Made $@
+
+t12:
+→ @sleep 9
+→ @echo Made $@
+
+When run in series, it takes about 88 seconds to complete:
+
+$ time make
+Made t1
+Made t2
+Made t8
+Made t5
+Made t3
+Made t4
+Made t6
+Made t7
+Made t10
+Made t9
+Made t12
+Made t11
+Made t
+done
+make 0.04s user 0.03s system 0% cpu 1:28.68 total
+
+What’s the maximum speedup possible, assuming as many CPUs are available as desired? Working through the makefile step by step, you’ll see that t takes 10 seconds to build and everything else must be built before that. t1, t2, t4, t6, and t7 are all independent, and the longest of them takes 12 seconds. t3 waits for t5, which needs t8: that chain takes a total of 20 seconds. t9 needs t10 for a total of 10 seconds, and t11 needs t12 for another 10 seconds.
+
+So the longest serial part of this build is the sequence t, t3, t5, t8, which takes a total of 30 seconds. This build can never go faster than 30 seconds (or 2.93 times faster than the serial 88 second time). How many processors are needed to achieve that speedup?
+
+In general, the maximum speedup achievable is governed by Amdahl’s law: if F is the fraction of the build that cannot be parallelized and N is the number of available processors, then the maximum speedup achievable is 1 / ( F + ( 1 - F ) / N ).
+
+In the Example 4-12 example, 34 percent of the build can’t be parallelized. Table 4-4 shows the results of applying Amdahl’s law:
+
+Table 4-4. Maximum Speedup Based on Number of Processors
+
+Number of processors
+	
+
+Maximum speedup
+
+2
+	
+
+1.49x
+
+3
+	
+
+1.79x
+
+4
+	
+
+1.98x
+
+5
+	
+
+2.12x
+
+6
+	
+
+2.22x
+
+7
+	
+
+2.30x
+
+8
+	
+
+2.37x
+
+9
+	
+
+2.42x
+
+10
+	
+
+2.46x
+
+11
+	
+
+2.50x
+
+12
+	
+
+2.53x
+
+For this small build, the maximum speedup Amdahl’s law predicts has a plateau starting at around eight processors. The actual plateau is further limited by the fact that only 13 possible jobs are in the build.
+
+Looking at the structure of the build, we can see that eight processors is the maximum because five jobs can run in parallel without any dependencies: t1, t2, t4, t6, and t7. Then three small chains of jobs can each use one processor at a time: t3, t5, and t8; t9 and t10; and t11 and t12. Building t can reuse one of the eight processors because they’ll all be idle at that point.
+
+A real-world instance of Amdahl’s law significantly impacting build times occurs with languages that have a linking step, such as C and C++. Typically, all the objects files are built before the link step and then a single (often huge) link process has to run. That link process is often not parallelizable and becomes the limiting factor on build parallelization.
+Making $(wildcard) Recursive
+
+The built-in $(wildcard) function is not recursive: it only searches for files in a single directory. You can have multiple globbing patterns in a $(wildcard) and use that to look in subdirectories. For example, $(wildcard */*.c) finds all the .c files in all subdirectories of the current directory. But if you need to search an arbitrary tree of directories, there’s no built-in way to do it.
+
+Fortunately, it’s pretty easy to make a recursive version of $(wildcard), like this:
+
+rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst *,%,$2),$d))
+
+The function rwildcard takes two parameters: the first is the directory from which to start searching (this parameter can be left empty to start from the current directory), and the second is the glob pattern for the files to find in each directory.
+
+For example, to find all .c files in the current directory (along with its subdirectories), use this:
+
+$(call rwildcard,,*.c)
+
+Or to find all .c files in /tmp, use this:
+
+$(call rwildcard,/tmp/,*.c)
+
+rwildcard also supports multiple patterns. For example:
+
+$(call rwildcard,/src/,*.c *.h)
+
+This finds all .c and .h files under /src/.
+Which Makefile Am I In?
+
+A common request is: Is there a way to find the name and path of the current makefile? By current, people usually mean the makefile that GNU make is currently parsing. There’s no built-in way to quickly get the answer, but there is a way using the GNU make variable MAKEFILE_LIST.
+
+MAKEFILE_LIST is the list of makefiles currently loaded or included. Each time a makefile is loaded or included, the MAKEFILE_LIST is appended with its path and name. The paths and names in the variable are relative to the current working directory (where GNU make was started or where it moved to with the -C or --directory option), but you can access the current directory from the CURDIR variable.
+
+So using that, you can define a GNU make function (let’s call it where-am-i) that will return the current makefile (it uses $(word) to get the last makefile name from the list):
+
+where-am-i = $(CURDIR)/$(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST))
+
+Then, whenever you want to find the full path to the current makefile, write the following at the top of the makefile:
+
+THIS_MAKEFILE := $(call where-am-i)
+
+It’s important that this line goes at the top because any include statement in the makefile will change the value of MAKEFILE_LIST, so you want to grab the location of the current makefile before that happens.
+
+Example 4-13 shows an example makefile that uses where-am-i and includes another makefile from the foo/ subdirectory, which, in turn, includes a makefile from the foo/bar/ directory.
+
+Example 4-13. A makefile that can determine where it is located on the filesystem
+
+where-am-i = $(CURDIR)/$(word ($words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)
+
+include foo/makefile
+
+The contents of foo/makefile is shown in Example 4-14.
+
+Example 4-14. A makefile included by Example 4-13
+
+THIS_MAKEFILE := $(call where-am-i)
+$(warning $(THIS_MAKEFILE))
+
+include foo/bar/makefile
+
+The contents of foo/bar/makefile is shown in Example 4-15.
+
+Example 4-15. A makefile included by Example 4-14
+
+THIS_MAKEFILE := $(call where-am-i)
+$(warning $(THIS_MAKEFILE))
+
+Putting the three makefiles in Example 4-13, Example 4-14 and Example 4-15 in /tmp (and subdirectories) and running GNU make gives the output:
+
+foo/makefile:2: /tmp/foo/makefile
+foo/bar/makefile:2: /tmp/foo/bar/makefile
+
+In this chapter, we’ve looked at common problems that makefile creators and maintainers run into when working on real makefiles. In any sizable project that uses make, you are likely to run into one or more (perhaps even all!) of them.

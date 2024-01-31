@@ -1,0 +1,1090 @@
+Search 50,000+ courses, events, titles, and more
+2. Makefile Debugging
+3. Building and Rebuilding
+4. Pitfalls and Problems
+2h 54m remaining
+Chapter 3. Building and Rebuilding
+
+Knowing when and why targets are rebuilt and recipes run is fundamental to using GNU make. For simple makefiles, it’s easy to understand why a particular object file was built, but for real-world makefiles, building and rebuilding becomes complex. In addition, GNU make dependencies can be limiting because files are updated when the modification time of a prerequisite is later than the target. And in most cases, only a single target is updated by a single rule.
+
+This chapter explains advanced techniques for handling dependencies in GNU make, including rebuilding when the recipe of a target changes, rebuilding when a checksum of a file changes, how best to implement recursive make, and how to build multiple targets in a single rule.
+Rebuilding When CPPFLAGS Changes
+
+This section shows you how to implement an important “missing feature” of GNU make: the ability to rebuild targets when the commands for those targets change. GNU make rebuilds a target when it is out of date; that is, it rebuilds when some of the prerequisites are newer than the target itself. But what if the target appears up-to-date when looking at file timestamps, but the actual commands to build the target have changed?
+
+For example, what happens when a non-debug build is followed by a debug build (perhaps by running make followed by make DEBUG=1)? Unless the build has been structured so the names of targets depend on whether the build is debug or non-debug, nothing happens.
+
+GNU make has no way of detecting that some targets ought to be rebuilt, because it doesn’t take into account any change to the commands in recipes. If, for example, DEBUG=1 causes the flags passed to the compiler to change, the target should be rebuilt.
+
+In this section you’ll learn how to make that happen in a few lines of GNU make code.
+An Example Makefile
+
+The example makefile in Example 3-1 is used throughout this section to demonstrate the rebuilding when commands change system. To make the operation of the system very clear, I’ve avoided using built-in GNU make rules, so this makefile isn’t as simple as it could be:
+
+Example 3-1. An example makefile for demonstrating the rebuilding when commands change system.
+
+all: foo.o bar.o
+
+foo.o: foo.c
+→ $(COMPILE.C) -DDEBUG=$(DEBUG) -o $@ $<
+
+bar.o: bar.c
+→ $(COMPILE.C) -o $@ $<
+
+The makefile creates two .o files, foo.o and bar.o, by compiling corresponding .c files. The compilation is done using the built-in variable COMPILE.C (which will normally be the name of a suitable compiler for the system, followed by references to variables like CPPFLAGS and use of $@ and $< to compile the code into an object file).
+
+A specific reference to $(DEBUG) is turned into a pre-processor variable called DEBUG using the compiler’s -D option. The contents of foo.c and bar.c have been omitted because they are irrelevant.
+
+Here’s what happens when make is run with no command line options (which means that DEBUG is undefined):
+
+$ make
+g++  -c -DDEBUG= -o foo.o foo.c
+g++  -c -o bar.o bar.c
+
+Now foo.o and bar.o have been created, so typing make again does nothing:
+
+$ make
+make: Nothing to be done for `all'.
+
+Typing make DEBUG=1 also does nothing, even though the object file foo.o would likely be different if it were rebuilt with DEBUG defined (for example, it would likely contain extra debugging code controlled by #ifdefs that use the DEBUG variable in the source code):
+
+$ make DEBUG=1
+make: Nothing to be done for `all'.
+
+The signature system in the next section will correct that problem and require very little work for the makefile maintainer.
+Changing Our Example Makefile
+
+To fix the problem in the preceding section, we’ll use a helper makefile called signature. We’ll look at how signature works in a moment; first let’s look at how to modify the makefile in Example 3-1 to use it:
+
+include signature
+
+all: foo.o bar.o
+
+foo.o: foo.c
+→ $(call do,$$(COMPILE.C) -DDEBUG=$$(DEBUG) -o $$@ $$<)
+
+bar.o: bar.c
+→ $(call do,$$(COMPILE.C) -o $$@ $$<)
+
+-include foo.o.sig bar.o.sig
+
+Three changes were made to the file: first, include signature was added at the start so the code that handles the updating of signatures is included. These signatures will capture the commands used to build files and be used to rebuild when the commands change.
+
+Second, the commands in the two rules were wrapped with $(call do,...), and the $ signs for each command have been quoted with a second $.
+
+Third, for each .o file being managed by signature, there’s an include of a corresponding .sig file. The final line of the makefile includes foo.o.sig (for foo.o) and bar.o.sig (for bar.o). Notice that -include is used instead of just include in case the .sig file is missing (-include doesn’t generate an error when one of the files to be included is not present).
+
+Before you see how this works, here are some examples of it in operation:
+
+$ make
+g++  -c -DDEBUG= -o foo.o foo.c
+g++  -c -o bar.o bar.c
+$ make
+make: Nothing to be done for `all'.
+
+First, there’s a clean build (with no .o files present) and then a rerun of make to see that there’s nothing to do.
+
+But setting DEBUG to 1 on the make command line now causes foo.o to rebuild:
+
+$ make DEBUG=1
+g++  -c -DDEBUG=1 -o foo.o foo.c
+
+This happens because its signature (the actual commands to be run to build foo.o) has changed.
+
+Of course, bar.o was not rebuilt because it was truly up-to-date (its object code was new and there were no command changes). Run make DEBUG=1 again, and it’ll say there’s nothing to be done:
+
+$ make DEBUG=1
+make: Nothing to be done for `all'.
+$ make
+g++  -c -DDEBUG= -o foo.o foo.c
+
+But just typing make (going back to a non-debug build) rebuilds foo.o again because DEBUG is now undefined.
+
+The signature system also works for variables within recursive variables. In GNU make, COMPILE.C actually expands CPPFLAGS to create the complete compiler command line. Here’s what happens if CPPFLAGS is modified on the GNU make command line by adding a definition:
+
+$ make CPPFLAGS+=-DFOO=foo
+g++ -DFOO=foo -c -DDEBUG= -o foo.o foo.c
+g++ -DFOO=foo -c -o bar.o bar.c
+
+Both foo.o and bar.o were rebuilt because CPPFLAGS changed (and because CPPFLAGS was part of the commands used to build those two object files).
+
+Of course, changing a variable that isn’t referenced doesn’t update anything. For example:
+
+$ make
+g++  -c -DDEBUG= -o foo.o foo.c
+g++  -c -o bar.o bar.c
+$ make SOMEVAR=42
+make: Nothing to be done for `all'.
+
+Here we’re starting from a clean build and redefining SOMEVAR.
+How Signature Works
+
+To understand how signature works, first look inside a .sig file. The .sig files are automatically generated by rules in the signature makefile for each rule that uses the $(call do,...) form.
+
+For example, here are the contents of the foo.o.sig file after the first clean build was run:
+
+$(eval @ := foo.o)
+$(eval % := )
+$(eval < := foo.c)
+$(eval ? := foo.o.force)
+$(eval ^ := foo.c foo.o.force)
+$(eval + := foo.c foo.o.force)
+$(eval * := foo)
+
+foo.o: foo.o.force
+
+$(if $(call sne,$(COMPILE.C) -DDEBUG=$(DEBUG) -o $@ $<,\
+g++ -c -DDEBUG= -o foo.o foo.c),$(shell touch foo.o.force))
+
+The first seven lines capture the state of the automatic variables as defined when the foo.o rule is being processed. We need the values of these variables so we can compare the current commands for a rule (which likely use automatic variables) with the commands the last time the rule was run.
+
+Next comes the line foo.o: foo.o.force. This states that foo.o must be rebuilt if foo.o.force is newer. It’s this line that causes foo.o to get rebuilt when the commands change, and it’s the next line that touches foo.o.force if the commands have changed.
+
+The long $(if) statement uses the GMSL sne (string not equal) function to compare the current commands for foo.o (by expanding them) against their value the last time they were expanded. If the commands have changed, $(shell touch foo.o.force) is called.
+
+Because the .sig files are processed when the makefile is being parsed (they are just makefiles, read using include), all the .force files will have been updated before any rules run. And so this small .sig file does all the work of forcing an object file to rebuild when commands change.
+
+The .sig files are created by signature:
+
+include gmsl
+
+last_target :=
+
+dump_var = \$$(eval $1 := $($1))
+
+define new_rule
+@echo "$(call map,dump_var,@ % < ? ^ + *)" > $S
+@$(if $(wildcard $F),,touch $F)
+@echo $@: $F >> $S
+endef
+define do
+$(eval S := $@.sig)$(eval F := $@.force)$(eval C := $(strip $1))
+$(if $(call sne,$@,$(last_target)),$(call new_rule),$(eval last_target := $@))
+@echo "S(subst ",\",$(subst $$,\$$,$$(if $$(call sne,$(strip $1),$C),$$(shell touch $F))))" >> $S
+$C
+endef
+
+signature includes the GMSL and then defines the important do variable used to wrap the commands in a rule. When do is called, it creates the appropriate .sig file containing the state of all the automatic variables.
+
+The new_rule function called by do captures the automatic variables. It uses the GMSL map function to call another function (dump_var) for each of @ % < ? ^ + *. The new_rule function also ensures that the corresponding .force file has been created.
+
+In addition, do writes out the complex $(if) statement that contains the unexpanded and expanded versions of the commands for the current rule. Then it actually runs the commands (that’s the $C) at the end.
+Limitations
+
+The signature system has some limitations that could trap the unwary. First, if the commands in a rule contain any side effects—for example, if they call $(shell)—the system may misbehave if there was an assumption that the side effect happens only once.
+
+Second, it’s vital that signature is included before any of the .sig files.
+
+Third, if the makefile is edited and the commands in a rule change, the signature system will not notice. If that happens, it’s vital to regenerate the corresponding target so the .sig is updated.
+
+Try adding the following line at the end of the definition of new_rule:
+
+@echo $F: Makefile >> $S
+
+You can make the signature system automatically rebuild when the makefile changes by having the makefile as a prerequisite to each of the makefile’s targets. This line is the simplest way to achieve that.
+Rebuilding When a File’s Checksum Changes
+
+Besides having GNU make rebuild targets when commands change, another common technique is to rebuild when the contents of a file change, not just the file’s timestamp.
+
+This usually comes up because the timestamps on generated code, or in code extracted from a source code control system, are older than related objects, so GNU make does not know to rebuild the object. This can happen even when the contents of the file are different from the last time the object was built.
+
+A common scenario is that an engineer working on a build on their local machine rebuilds all objects and later gets the latest version of source files from source code control. Some older source control systems set the timestamp on the source files to the timestamp of the file when it was checked in to source control; in that case, newly built object files may have timestamps that are newer than the (potentially changed) source code.
+
+In this section you’ll learn a simple hack to get GNU make to do the right thing (rebuild) when the contents of a source file change.
+An Example Makefile
+
+The simple makefile in Example 3-2 builds object file foo.o from foo.c and foo.h using the built-in rule to make a .o file from a .c:
+
+Example 3-2. A simple makefile that builds foo.o from foo.c and foo.h
+
+.PHONY: all
+all: foo.o
+
+foo.o: foo.c foo.h
+
+If either foo.c or foo.h are newer than foo.o, then foo.o will be rebuilt.
+
+If foo.h were to change without updating its timestamp, GNU make would do nothing. For example, if foo.h were updated from source code control, this makefile might do the wrong thing.
+
+To work around this problem, we need a way to force GNU make to consider the contents of the file, not its timestamp. Because GNU make can handle timestamps internally only, we need to hack the makefile so that file timestamps are related to file contents.
+Digesting File Contents
+
+An easy way to detect a change in a file is to use a message digest function, such as MD5, to generate a digest of the file. Because any change in the file will cause the digest to change, just examining the digest will be enough to detect a change in the file’s contents.
+
+To force GNU make to check the contents of each file, we’ll associate a file with the extension .md5 with every source code file to be tested. Each .md5 file will contain the MD5 checksum of the corresponding source code file.
+
+In Example 3-2, source code files foo.c and foo.h will have associated .md5 files foo.c.md5 and foo.h.md5. To generate the MD5 checksum, we use the md5sum utility: it outputs a hexadecimal string containing the MD5 checksum of its input file.
+
+If we arrange for the timestamp of the .md5 file to change when the checksum of the related file changes, GNU make can check the timestamp of the .md5 file in lieu of the actual source file.
+
+In our example, GNU make would check the timestamp of foo.c.md5 and foo.h.md5 to determine whether foo.o needs to be rebuilt.
+The Modified Makefile
+
+Here’s the completed makefile that checks the MD5 checksum of source files so that objects are rebuilt when the contents of those files (and hence their checksums) change:
+
+to-md5 = $1 $(addsuffix .md5,$1)
+
+.PHONY: all
+all: foo.o
+
+foo.o: $(call to-md5,foo.c foo.h)
+
+%.md5: FORCE
+→ @$(if $(filter-out $(shell cat $@ 2>/dev/null),$(shell md5sum $*)),md5sum $* > $@)
+
+FORCE:
+
+Notice first that the prerequisite list for foo.o has changed from foo.c foo.h to $(call to-md5,foo.c foo.h). The to-md5 function defined in the makefile adds the suffix .md5 to all the filenames in its argument.
+
+So after expansion, the line reads:
+
+foo.o: foo.c foo.h foo.c.md5 foo.h.md5.
+
+This tells GNU make to rebuild foo.o if either of the .md5 files is newer, as well as if either foo.c or foo.h is newer.
+
+To ensure that the .md5 files always contain the correct timestamp, they are always rebuilt. Each .md5 file is remade by the %.md5: FORCE rule. The use of the empty rule FORCE: means that the .md5 files are examined every time. Use of FORCE here is a little like using .PHONY: if there’s no file called FORCE, GNU make will build it (there’s no recipe so nothing happens) and then GNU make will consider FORCE to be newer than the %.md5 file and rebuild it. Because we can’t do .PHONY: %.md5, we use this FORCE trick instead.
+
+The commands for the %.md5: FORCE rule will only actually rebuild the .md5 file if it doesn’t exist or if the checksum stored in the .md5 file is different from the corresponding file’s checksum, which works as follows:
+
+    $(shell md5sum $*) checksums the file that matches the % part of %.md5. For example, when this rule is being used to generate the foo.h.md5 file, then % matches foo.h and foo.h is stored in $*.
+
+    $(shell cat $@ 2>/dev/null) gets the contents of the current .md5 file (or a blank if it doesn’t exist; note how the 2>/dev/null means that errors are ignored). Then, the $(filter-out) compares the checksum retrieved from the .md5 file and the checksum generated by md5sum. If they are the same, the $(filter-out) is an empty string.
+
+    If the checksum has changed, the rule will actually run md5sum $* > $@, which will update the .md5 file’s contents and timestamp. The stored checksum will be available for later use when running GNU make again, and the changed timestamp on the .md5 file will cause the related object file to be built.
+
+The Hack in Action
+
+To see how the hack updates an object file when one of its prerequisites changes checksum, let’s create files foo.c and foo.h and run GNU make:
+
+$ touch foo.c foo.h
+$ ls
+foo.c foo.h makefile
+$ make
+cc -c -o foo.o foo.c
+$ ls
+foo.c foo.c.md5 foo.h foo.h.md5 foo.o makefile
+
+GNU make generates the object file foo.o and two .md5 files, foo.c.md5 and foo.h.md5. Each .md5 file contains the checksum of the file:
+
+$ cat foo.c.md5
+d41d8cd98f00b204e9800998ecf8427e foo.c
+
+First, we verify that everything is up-to-date and then verify that changing the timestamp on either foo.c or foo.h causes foo.o to be rebuilt:
+
+$ make
+make: Nothing to be done for `all'.
+$ touch foo.c
+$ make
+cc  -c -o foo.o foo.c
+$ make
+make: Nothing to be done for `all'.
+$ touch foo.h
+$ make
+cc -c -o foo.o foo.c
+
+To demonstrate that changing the contents of a source file will cause foo.o to be rebuilt, we can cheat by changing the contents of, say, foo.h and then touch foo.o to make foo.o newer than foo.h, which would normally mean that foo.o would not be built.
+
+As a result, we know that foo.o is newer than foo.h but that foo.h’s contents have changed since the last time foo.o was built:
+
+$ make
+make: Nothing to be done for `all'.
+$ cat foo.h.md5
+d41d8cd98f00b204e9800998ecf8427e foo.h
+$ cat >> foo.h
+// Add a comment
+$ touch foo.o
+$ make
+cc  -c -o foo.o foo.c
+$ cat foo.h.md5
+65f8deea3518fcb38fd2371287729332 foo.h
+
+You can see that foo.o was rebuilt, even though it was newer than all the related source files, and that foo.h.md5 has been updated with the new checksum of foo.h.
+Improving the Code
+
+We can make a couple of improvements to the code: the first is an optimization. When the checksum of a file has changed the rule to update, the .md5 file actually ends up running md5sum twice on the same file with the same result. That’s a waste of time. If you are using GNU make 3.80 or later, it’s possible to store the output of md5sum $* in a temporary variable called CHECKSUM and just use the variable:
+
+%.md5: FORCE
+→ @$(eval CHECKSUM := $(shell md5sum $*))$(if $(filter-out \
+$(shell cat $@ 2>/dev/null),$(CHECKSUM)),echo $(CHECKSUM) > $@)
+
+The second improvement is to make the checksum insensitive to changes in whitespace in a source file. After all, it would be a pity if two developers’ differing opinions on the right amount of indentation caused object files to rebuild when nothing else had changed.
+
+The md5sum utility does not have a way of ignoring whitespace, but it’s easy enough to pass the source file through tr to strip whitespace before handing it to md5sum for checksumming. (However, note that removing all whitespace might not be a good idea, at least not for most languages.)
+Automatic Dependency Generation
+
+Any project larger than a simple example faces a dependency management problem. Dependencies must be generated and kept up to date as engineers modify the project. GNU make provides no tools for dealing with this. All GNU make provides is a mechanism for expressing the relationships between files with its familiar target : prerequisite1 prerequisite2 ... syntax.
+
+GNU make’s dependency syntax is flawed because it is more than just a list of prerequisites: the first prerequisite has a special meaning. Anything to the right of the : is a prerequisite, but the first prerequisite where there’s a recipe (that is, commands) is special: it’s the prerequisite that is assigned to the automatic variable $< and is also frequently the prerequisite passed to the compiler (or other command) to generate the target.
+
+The $< variable is also special in another way. Sometimes a target will have a recipe and other rules specifying prerequisites. For example, it’s not uncommon to see something like this:
+
+foo.o: foo.c
+4 @compile -o $@ $<
+
+foo.o: myheader.h string.h
+
+The value of $< is set from the rule that has a recipe (it will be foo.c in this case).
+
+Take a look at this:
+
+foo.o: foo.c header.h system.h
+→ @echo Compiling $@ from $<...
+
+which outputs
+
+$ make
+Compiling foo.o from foo.c...
+
+Here foo.o is built if foo.c, header.h, or system.h change, but the rule also states that foo.o is made from foo.c. Say our example were written like this:
+
+foo.o: foo.c
+foo.o: header.h system.h
+→ @echo Compiling $@ from $<...
+
+The output would be:
+
+$ make
+Compiling foo.o from header.h...
+
+This is clearly wrong.
+An Example Makefile
+
+The biggest problem is generating all the rules expressing all the dependencies for a large project. The rest of this section uses the following contrived example makefile as a starting point:
+
+.PHONY: all
+all: foo.o bar.o baz.o
+
+foo.o: foo.c foo.h common.h header.h
+bar.o: bar.c bar.h common.h header.h ba.h
+baz.o: baz.c baz.h common.h header.h ba.h
+
+Three object files (foo.o, bar.o, and baz.o) are built from corresponding .c files (foo.c, bar.c, and baz.c). Each .o file has dependencies on various different header files, as shown in the last three lines of the makefile. The makefile uses GNU make’s built-in rules to perform compilation using the system’s compiler.
+
+There’s no mention here of the final executable being built. The reason is that this example focuses on dealing with dependencies between sources and objects; relationships between objects are usually easier to maintain by hand because there are fewer of them and the relationships are part of the product design.
+makedepend and make depend
+
+Because maintaining any real makefile by hand is impossible, many projects use the widely available makedepend program. makedepend reads C and C++ files, looks at the #include statements, opens the files that are included, and builds the dependency lines automatically. A basic way of incorporating makedepend in a project is a special depend target, as shown in Example 3-3.
+
+Example 3-3. Using makedepend in your makefile
+
+.PHONY: all
+all: foo.o bar.o baz.o
+
+SRCS = foo.c bar.c baz.c
+
+DEPENDS = dependencies.d
+.PHONY: depend
+depend:
+→ @makedepend -f - $(SRCS) > $(DEPENDS)
+
+-include $(DEPENDS)
+
+Executing make depend with this makefile causes the depend rule to execute, which runs makedepend on the sources (defined in the SRCS variable) and outputs the dependency lines to a file called dependencies.d (defined by the DEPENDS variable).
+
+The makefile adds the dependencies in its final line by including the dependencies.d file. dependencies.d would look like this:
+
+# DO NOT DELETE
+
+foo.o: foo.h header.h common.h
+bar.o: bar.h header.h common.h ba.h
+baz.o: baz.h header.h common.h ba.h
+
+Notice that makedepend doesn’t try to define the relationship between an object file (like foo.o) and the source file it is made from (foo.c). In this case GNU make’s standard rules will find the related .c file automatically.
+Automating makedepend and Removing make depend
+
+Two problems exist with the make depend style. Running make depend can be slow, because every source file must be searched, even if there are no changes. Also, it’s a manual step: before every make the user will have to do make depend to ensure that the dependencies are correct. The solution to these problems is automation.
+
+Example 3-4 shows another version of the makefile from Example 3-3:
+
+Example 3-4. Automatically running makedepend when needed
+
+.PHONY: all
+all: foo.o bar.o baz.o
+
+SRCS = foo.c bar.c baz.c
+
+%.d : %.c
+→ @makedepend -f - $< | sed 's,\($*\.o\)[ :]*,\1 $@ : ,g' > $@
+
+-include $(SRCS:.c=.d)
+
+This version still uses makedepend to generate dependencies but automates the process and only runs makedepend for sources that have changed. It works by associating a .d file with each .c. For example, foo.o (built from foo.c) has a foo.d file that just contains the dependency line for foo.o.
+
+Here are the contents of foo.d:
+
+# DO NOT DELETE
+
+foo.o foo.d : foo.h header.h common.h
+
+Notice one addition: this line specifies when to rebuild foo.o, but also that foo.d should be rebuilt under the same conditions. If any of the sources associated with foo.o change, foo.d is rebuilt. foo.c isn’t mentioned in this list because it’s mentioned as part of the pattern rule for rebuilding a .d file (the %.d : %.c rule in the main makefile means that foo.d will be rebuilt if foo.c changes). foo.d was added to the dependency line created by makedepend using the sed magic shown in Example 3-4.
+
+The final line of the main makefile includes all the .d files: the $(SRCS:.c=.d) transforms the list of sources in the SRCS variable by changing the extension from .c to .d. The include also tells GNU make to check whether the .d files need rebuilding.
+
+GNU make will check if there are rules to rebuild included makefiles (in this case the .d files), rebuild them if necessary (following the dependencies specified in the makefile), and then restart. This makefile remaking feature (http://www.gnu.org/software/make/manual/html_node/Remaking-Makefiles.html) means that simply typing make will do the right thing: it’ll rebuild any dependency files that need rebuilding but only if the sources have changed. Then GNU make will perform the build, taking the new dependencies into account.
+Making Deleted Files Disappear from Dependencies
+
+Unfortunately, our makefile breaks with a fatal error if a source file is removed. If header.h is no longer needed, all references to it are removed from the .c files, the file is removed from disk, and running make produces the following error:
+
+$ make
+No rule to make target `header.h', needed by `foo.d'.
+
+This happens because header.h is still mentioned in foo.d as a prerequisite of foo.d; hence, foo.d cannot be rebuilt. You can fix this by making the generation of foo.d smarter:
+
+# DO NOT DELETE
+
+foo.d : $(wildcard foo.h header.h common.h)
+foo.o : foo.h header.h common.h
+
+The new foo.d includes the dependencies for foo.o and foo.d separately. foo.d’s dependencies are wrapped in a call to GNU make’s $(wildcard) function.
+
+And here’s the updated makefile with a new invocation of makedepend followed by a sed line that creates the modified .d file:
+
+.PHONY: all
+all: foo.o bar.o baz.o
+
+SRCS = foo.c bar.c baz.c
+
+%.d : %.c
+→ @makedepend -f - $< | sed 's,\($*\.o\)[ :]*\(.*\),$@ : $$\(wildcard \2\)\n\1 : \2,g' > $@
+
+-include $(SRCS:.c=.d)
+
+Removing a header file now doesn’t break the make: when foo.d is parsed, the dependency line for foo.d is passed through $(wildcard). When there are no globbing symbols like * or ? in the filename, $(wildcard) acts as a simple existence filter, removing from the list any files that do not exist. So if header.h had been removed, the first line of foo.d would be equivalent to this:
+
+foo.d : foo.h common.h
+
+The make would work correctly. This example makefile now works when .c files are added (the user just updates SRCS and the new .d file is created automatically), when .c files are removed (the user updates SRCS and the old .d file is ignored), when headers are added (because that requires altering an existing .c or .h, the .d file will be regenerated), and when headers are removed (the $(wildcard) hides the deletion and the .d file is regenerated).
+
+A possible optimization is to remove the need for GNU make to restart by merging the rule that makes the .d file into the rule that makes the .o:
+
+.PHONY: all
+all: foo.o bar.o baz.o
+
+SRCS = foo.c bar.c baz.c
+
+%.o : %.c
+→ @makedepend -f - $< | sed 's,\($*\.o\)[ :]*\(.*\),$@ : $$\(wildcard \2\)\n\1 : \2,g' > $*.d
+→ @$(COMPILE.c) -o $@ $<
+
+-include $(SRCS:.c=.d)
+
+Because the .d file is updated if and only if the .o file needs to be updated (both are updated when any of the sources for the .o change), it’s possible to have the makedepend happen at the same time as the compilation.
+
+This rule uses $*, another GNU make variable. $* is the part of the pattern %.c that matches the %. If this rule is building foo.o from foo.c, $* is just foo. $* creates the name of the .d file that makedepend writes to.
+
+This version does not use GNU make’s makefile remaking system. There are no rules for making .d files (they are made as a side effect of making the .o files), so GNU make doesn’t have to restart. This provides the best combination of accuracy and speed.
+
+In general, it’s a bad idea to have a rule that makes multiple files because it’s impossible for GNU make to find the rule that makes a file if it’s created as a side effect of something else. In this case, that behavior is desired: we want to hide the creation of .d files from GNU make so it doesn’t try to make them and then have to restart.
+
+Tom Tromey proposed a similar idea without the $(wildcard) trick. You can find this and more information about building dependency files on GNU make maintainer Paul Smith’s website at http://make.mad-scientist.net/papers/advanced-auto-dependency-generation/.
+Doing Away with makedepend
+
+Additionally, it’s possible to omit makedepend altogether if you are using GNU gcc, llvm, or clang, or a similar compiler.
+
+An -MD option does the work of makedepend at the same time as the compilation:
+
+.PHONY: all
+all: foo.o bar.o baz.o
+
+SRCS = foo.c bar.c baz.c
+
+%.o : %.c
+→ @$(COMPILE.c) -MD -o $@ $<
+→ @sed -i 's,\($*\.o\)[ :]*\(.*\),$@ : $$\(wildcard \2\)\n\1 : \2,g' $*.d
+
+-include $(SRCS:.c=.d)
+
+For example, the compilation step for foo.o will create foo.d from foo.c. Then, sed is run on the foo.d to add the extra line for foo.d containing the $(wildcard).
+Using gcc -MP
+
+gcc also has the -MP option, which attempts to deal with the problem of disappearing files by creating empty rules to “build” missing files. For example, it’s possible to eliminate the sed magic completely, using the -MP option in place of -MD:
+
+.PHONY: all
+all: foo.o bar.o baz.o
+
+SRCS = foo.c bar.c baz.c
+
+%.o : %.c
+→ @$(COMPILE.c) -MP -o $@ $<
+
+-include $(SRCS:.c=.d)
+
+The foo.d file will look like this:
+
+foo.o : foo.h header.h common.h 
+foo.h :
+header.h :
+common.h :
+
+If, for example, foo.h is deleted, make will not complain because it will find the empty rule (foo.h :) to build it, and the missing file error will be prevented. However, it is vital that the foo.d file be updated every time foo.o is built. If it’s not, foo.d will still contain foo.h as a prerequisite, and foo.o will rebuild every time make is run because make will attempt to build foo.h (forcing a foo.o build) using the empty rule.
+Atomic Rules in GNU make
+
+A fundamental law of GNU make physics is that each rule builds one and only one file (called a target). There are exceptions to that rule (which we’ll see in the rest of this section), but nevertheless, for any normal GNU make rule such as
+
+a: b c
+→ @command
+
+there’s only one file mentioned to the left of the :. That’s the filename that gets put into the $@ automatic variable. It’s expected that command will actually update that file.
+
+This section explains what to do if a command updates more than one file and how to express that so GNU make knows that more than one file was updated and behaves correctly.
+What Not to Do
+
+Imagine a command that makes two files (a and b) from the same prerequisites in a single step. In this section, such a command is simulated with touch a b, but in reality it could be much more complex than that.
+
+Example 3-5 shows what not to do:
+
+Example 3-5. What not to do
+
+.PHONY: all
+all: a b
+
+a b: c d
+→ touch a b
+
+At first glance Example 3-5 looks correct; it seems to say that a and b are built from c and d by a single command. If you run this in make, you can get output like this (especially if you use the -j option to run a parallel build):
+
+$ make
+touch a b
+touch a b
+
+The command was run twice. In this case that’s harmless, but for a real command that does real work, running twice is almost certainly the wrong thing to do. Also, if you use the -j option to run in parallel, you can end up with the command running more than once and simultaneously with itself.
+
+The reason is that GNU make actually interprets the makefile as:
+
+.PHONY: all
+all: a b
+
+a: c d
+→ touch a b
+
+b: c d
+→ touch a b
+
+There are two separate rules (one declares that it builds a; the other says it builds b) that both build a and b.
+Using Pattern Rules
+
+GNU make does have a way to build more than one target in a single rule using a pattern rule. Pattern rules can have an arbitrary number of target patterns and still be treated as a single rule.
+
+For example:
+
+%.foo %.bar %.baz:
+→ command
+
+This means that files with the extensions .foo, .bar, and .baz (and of course the same prefix that will match against the %) will be built with a single invocation of command.
+
+Suppose that the makefile looked like this:
+
+.PHONY: all
+all: a.foo a.bar a.baz
+
+%.foo %.bar %.baz:
+→ command
+
+Then, command would be invoked just once. In fact, it’s enough to specify that just one of the targets and the pattern rule will run:
+
+.PHONY: all
+all: a.foo
+
+%.foo %.bar %.baz:
+→ command
+
+This can be very useful. For example:
+
+$(OUT)/%.lib $(OUT)/%.dll: $(VERSION_RESOURCE)
+→ link /nologo /dll /fixed:no /incremental:no  \
+   /map:'$(call to_dos,$(basename $@).map)'    \
+   /out:'$(call to_dos,$(basename $@).dll)'    \
+   /implib:'$(call to_dos,$(basename $@).lib)' \
+        $(LOADLIBES) $(LDLIBS)                 \
+   /pdb:'$(basename $@).pdb'                   \
+   /machine:x86                                \
+   $^
+
+This is an actual rule from a real makefile that builds a .lib and its associated .dll in one go.
+
+Of course, if the files don’t have a common part in their names, using a pattern rule won’t work. It doesn’t work for the simple example at the beginning of this section, but there is an alternative.
+Using a Sentinel File
+
+A possible workaround to using a pattern rule is to introduce a single file to indicate whether any of the targets of a multi-target rule have been built. Creating a single “indicator” file turns multiple files into a single file, and GNU make understands single files. Here’s Example 3-5, rewritten:
+
+.PHONY: all
+all: a b
+
+a b: .sentinel
+→ @:
+
+.sentinel: c d
+→ touch a b
+→ touch .sentinel
+
+The rule to build a and b can be run only once because only one prerequisite is specified (.sentinel). If c or d are newer, .sentinel gets rebuilt (and hence a and b are rebuilt). If the makefile asks for either a or b, they are rebuilt via the .sentinel file.
+
+The funny @: command in the a b rule just means that there are commands to build a and b but they do nothing.
+
+It would be nice to make this transparent. That’s where the atomic function comes in. The atomic function sets up the sentinel file automatically, based on the names of the targets to be built, and creates the necessary rules:
+
+sp :=
+sp +=
+sentinel = .sentinel.$(subst $(sp),_,$(subst /,_,$1))
+atomic = $(eval $1: $(call sentinel,$1) ; @:)$(call sentinel,$1): $2 ; touch $$@
+
+.PHONY: all
+all: a b
+
+$(call atomic,a b,c d)
+→ touch a b
+
+All we’ve done is replace the original a b : c d rule with a call to atomic. The first argument is the list of targets that need to be built atomically; the second argument is the list of prerequisites.
+
+atomic uses the sentinel function to create a unique sentinel filename (in the case of targets a b the sentinel filename is .sentinel.a_b) and then sets up the necessary rules.
+
+Expanding atomic in this makefile would be the same as doing this:
+
+.PHONY: all
+all: a b
+
+a b: .sentinel.a_b ; @:
+
+.sentinel.a_b: c d ; touch $@
+→ touch a b
+
+There’s one flaw with this technique. If you delete a or b, you must also delete the related sentinel file or the files won’t get rebuilt.
+
+To work around this, you can have the makefile delete the sentinel file if necessary by checking to see if any of the targets being built are missing. Here’s the updated code:
+
+sp :=
+sp +=
+sentinel = .sentinel.$(subst $(sp),_,$(subst /,_,$1))
+atomic = $(eval $1: $(call sentinel,$1) ; @:)$(call sentinel,$1):  \
+$2 ; touch $$@ $(foreach t,$1,$(if $(wildcard $t),,$(shell rm -f   \
+$(call sentinel,$1))))
+
+.PHONY: all
+all: a b
+
+$(call atomic,a b,c d)
+→ touch a b
+
+Now atomic runs through the targets. If any are missing—detected by the $(wildcard)—the sentinel file is deleted.
+Painless Non-recursive make
+
+Once a makefile project reaches a certain size (usually when it has dependencies on subprojects), it’s inevitable that the build master writes a rule that contains a call to $(MAKE). And right there the build master has created a recursive make: a make that executes an entire other make process. It’s incredibly tempting to do this because conceptually, recursive make is simple: if you need to build a subproject, just go to its directory and run make via $(MAKE).
+
+But it has one major flaw: once you start a separate make process, all information about dependencies is lost. The parent make doesn’t know whether the subproject make really needed to happen, so it has to run it every time, and that can be slow. Fixing that problem isn’t easy, but non-recursive makes are powerful once implemented.
+
+One common objection to using non-recursive make is that with recursive make it’s possible to go to anywhere in a source code tree and type make. Doing so typically builds the objects that are defined by the makefile at that level in the tree (and possibly below that, if the makefile recurses).
+
+Non-recursive make systems (based on include statements instead of make invocations) often do not offer this flexibility, and GNU make must be run from the top-level directory. Even though non-recursive GNU make is typically more efficient (running from the top-level directory should be quick), it’s important to be able to give developers the same level of functionality as a recursive make system.
+
+This section outlines a pattern for a non-recursive GNU make system that supports the familiar make-anywhere style common to recursive GNU make systems. Typing make in a directory will build everything in that directory and below, but there are no recursive $(MAKE) invocations. The single make that runs knows about all the dependencies across projects and subprojects, and it can build efficiently.
+A Simple Recursive Make
+
+Imagine a project with the following subdirectories:
+
+/src/
+/src/library/
+/src/executable/
+
+/src/ is the top-level directory and is where you’d type make to get a full build. Inside /src/ is a library/ directory that builds a library called lib.a from source files lib1.c and lib2.c:
+
+/src/library/lib1.c
+/src/library/lib2.c
+
+The /src/executable/ directory builds an executable file called exec from two source files (foo.c and bar.c) and links with the library lib.a:
+
+/src/executable/foo.c
+/src/executable/bar.c
+
+The classic recursive make solution is to put a makefile in each subdirectory. Each makefile contains rules to build that directory’s objects, and a top-level makefile recurses into each subdirectory. Here are the contents of such a recursive makefile (/src/makefile):
+
+SUBDIRS = library executable
+
+.PHONY: all
+all:
+→ for dir in $(SUBDIRS); do \
+→ $(MAKE) -C $$dir;         \
+→ done
+
+This enters each directory in turn and runs make to build first the library and then the executable. The dependency between the executable and the library (that is, the fact that the library needs to be built before the executable) is implicit in the order in which the directories are specified in SUBDIRS.
+
+Here’s an example of an improvement on using a for loop using phony targets for each directory:
+
+SUBDIRS = library executable
+
+.PHONY: $(SUBDIRS)
+$(SUBDIRS):
+→ $(MAKE) -C $@
+
+.PHONY: all
+all: $(SUBDIRS)
+
+executable: library
+
+You unwind the loop inside the rule for all, create separate rules for each subdirectory, and explicitly specify the dependency between executable and library. This code is much clearer, but it’s still recursive with separate make invocations for each subdirectory.
+A Flexible Non-recursive make System
+
+When moving to non-recursive make, the ideal top-level makefile would look like Example 3-6.
+
+Example 3-6. A small non-recursive makefile
+
+SUBDIRS = library executable
+
+include $(addsuffix /makefile,$(SUBDIRS))
+
+This simply says to include the makefile from each subdirectory. The trick is to make that work! Before you see how, here are the skeletons of the contents of the makefiles in the library and executable subdirectories:
+
+# /src/library/Makefile
+
+include root.mak
+include top.mak
+
+SRCS := lib1.c lib2.c
+BINARY := lib
+BINARY_EXT := $(_LIBEXT)
+include bottom.mak
+
+and
+
+# /src/executable/Makefile
+
+include root.mak
+include top.mak
+SRCS := foo.c foo.c
+BINARY := exec
+BINARY_EXT := $(_EXEEXT)
+
+include bottom.mak
+
+Each of those makefiles specifies the source files to be built (in the SRCS variable), the name of the final linked binary (in the BINARY variable), and the type of the binary (using the BINARY_EXT variable, which is set from special variables _LIBEXT and _EXEEXT).
+
+Both the makefiles include the common makefiles root.mak, top.mak, and bottom.mak, which are located in the /src/ directory.
+
+Because the .mak included makefiles are not in the subdirectories, GNU make needs to go looking for them. To find the .mak files in /src, do this:
+
+$ make -I /src
+
+Here, you use the -I command line option that adds a directory to the include search path.
+
+It’s unfortunate to ask a user to add anything to the make command line. To avoid that, you can create a simple method of automatically walking up the source tree to find the .mak files. Here’s the actual makefile for /src/ library:
+
+sp :=
+sp +=
+_walk = $(if $1,$(wildcard /$(subst $(sp),/,$1)/$2) $(call _walk,$(wordlist 2,$(words $1),x $1),$2))
+_find = $(firstword $(call _walk,$(strip $(subst /, ,$1)),$2))
+_ROOT := $(patsubst %/root.mak,%,$(call _find,$(CURDIR),root.mak))
+
+include $(_ROOT)/root.mak
+include $(_ROOT)/top.mak
+
+SRCS := lib1.c lib2.c
+BINARY := lib
+BINARY_EXT := $(_LIBEXT)
+
+include $(_ROOT)/bottom.mak
+
+The _find function walks up a directory tree starting from the directory in $1, looking for the file named $2. The actual find is achieved by calling the _walk function, which walks up the tree, finding every instance of the file $2 in each of the successively shorter paths from $1.
+
+The block of code at the start of the makefile finds the location of root.mak, which is in the same directory as top.mak and bottom.mak (namely, /src), and saves that directory in _ROOT.
+
+Then, the makefile can use $(_ROOT)/ to include the root.mak, top.mak, and bottom.mak makefiles without any need to type anything other than make.
+
+Here are the contents of the first included makefile (root.mak):
+
+_push = $(eval _save$1 := $(MAKEFILE_LIST))
+_pop = $(eval MAKEFILE_LIST := $(_save$1))
+_INCLUDE = $(call _push,$1)$(eval include $(_ROOT)/$1/Makefile)$(call _pop,$1)
+DEPENDS_ON = $(call _INCLUDE,$1)
+DEPENDS_ON_NO_BUILD = $(eval _NO_RULES := T)$(call _INCLUDE,$1)$(eval _NO_RULES :=)
+
+For the moment, ignore its contents and return to what these functions are used for when looking at dependencies between modules. The real work begins with top.mak:
+
+_OUTTOP ?= /tmp/out
+
+.PHONY: all
+all:
+
+_MAKEFILES := $(filter %/Makefile,$(MAKEFILE_LIST))
+_INCLUDED_FROM := $(patsubst $(_ROOT)/%,%,$(if $(_MAKEFILES), \
+$(patsubst %/Makefile,%,$(word $(words $(_MAKEFILES)),$(_MAKEFILES)))))
+ifeq ($(_INCLUDED_FROM),)
+_MODULE := $(patsubst $(_ROOT)/%,%,$(CURDIR))
+else
+_MODULE := $(_INCLUDED_FROM)
+endif
+_MODULE_PATH := $(_ROOT)/$(_MODULE)
+_MODULE_NAME := $(subst /,_,$(_MODULE))
+$(_MODULE_NAME)_OUTPUT := $(_OUTTOP)/$(_MODULE)
+
+_OBJEXT := .o
+_LIBEXT := .a
+_EXEEXT :=
+
+The _OUTTOP variable defines the top-level directory into which all binary output (object files and so on) will be placed. Here it has the default value of /tmp/out, and it’s defined with ?= so it can be overridden on the command line.
+
+Next, top.mak sets up the default target for GNU make as the classic all. Here it has no dependencies, but they are added later for each module that will be built.
+
+Thereafter, a number of variables end up setting the _MODULE_PATH to the full path to the module directory being built. For example, when building the library module, _MODULE_PATH would be /src/library. Setting this variable is complex because determining the module directory has to be independent of the directory from which GNU make was executed (so that the library can be built from the top-level, for a make all, or from the individual library directory, for an individual developer build, or the library can even be included as a dependency on a different module).
+
+The _MODULE_NAME is simply the path relative to the root of the tree with / replaced by _. In Example 3-5, the two modules have _MODULE_NAMEs: library and executable. But if library had a subdirectory containing a module called sublibrary, then its _MODULE_NAME would be library_sublibrary.
+
+The _MODULE_NAME is also used to create the $(_MODULE_NAME)_OUTPUT special variable, which has a computed name based on _MODULE_NAME. So for the library module, the variable library_OUTPUT is created with the full path of the directory into which library’s object files should be written. The output path is based on _OUTTOP and the relative path to the module being built. As a result, the /tmp/out tree mirrors the source tree.
+
+Finally, some standard definitions of extensions used on filenames are set up. Definitions for Linux systems are used here, but these can easily be changed for systems such as Windows that don’t use .o for an object file or .a for a library.
+
+bottom.mak uses these variables to set up the rules that will actually build the module:
+
+$(_MODULE_NAME)_OBJS := $(addsuffix $(_OBJEXT),$(addprefix \
+$($(_MODULE_NAME)_OUTPUT)/,$(basename $(SRCS)))) $(DEPS)
+$(_MODULE_NAME)_BINARY := $($(_MODULE_NAME)_OUTPUT)/$(BINARY)$(BINARY_EXT)
+
+ifneq ($(_NO_RULES),T)
+ifneq ($($(_MODULE_NAME)_DEFINED),T)
+all: $($(_MODULE_NAME)_BINARY)
+
+.PHONY: $(_MODULE_NAME)
+$(_MODULE_NAME): $($(_MODULE_NAME)_BINARY)
+_IGNORE := $(shell mkdir -p $($(_MODULE_NAME)_OUTPUT))
+
+_CLEAN := clean-$(_MODULE_NAME)
+.PHONY: clean $(_CLEAN)
+clean: $(_CLEAN)
+$(_CLEAN):
+→ rm -rf $($(patsubst clean-%,%,$@)_OUTPUT)
+
+$($(_MODULE_NAME)_OUTPUT)/%.o: $(_MODULE_PATH)/%.c
+→ @$(COMPILE.c) -o '$@' '$<'
+$($(_MODULE_NAME)_OUTPUT)/$(BINARY).a: $($(_MODULE_NAME)_OBJS)
+→ @$(AR) r '$@' $^
+→ @ranlib '$@'
+$($(_MODULE_NAME)_OUTPUT)/$(BINARY)$(_EXEEXT): $($(_MODULE_NAME)_OBJS)
+→ @$(LINK.cpp) $^ -o'$@'
+
+$(_MODULE_NAME)_DEFINED := T
+endif
+endif
+
+The first thing bottom.mak does is set up two variables with computed names: $(_MODULE_NAME)_OBJS (which is the list of object files in the module computed from the SRCS variable by transforming the extension) and $(_MODULE_NAME)_BINARY (which is the name of the binary file created by the module; this would typically be the library or executable being built).
+
+We include the DEPS variable, so the $(_MODULE_NAME)_OBJS variable also includes any object files that the module needs but doesn’t build. Later you’ll see how this is used to define a dependency between the library and executable.
+
+Next, if rules for this module have not previously been set up (controlled by the $(_MODULE_NAME)_DEFINED variable) and have not been explicitly disabled by the _NO_RULES variable, the actual rules to build the module are defined.
+
+In this example, rules for Linux are shown. This is where you’d change this example for another operating system.
+
+all has the current binary, from $(_MODULE_NAME)_BINARY, added as a prerequisite so that the module gets built when a full build is done. Then there’s a rule that associates the module name with the module binary so that it’s possible to type something like make library at the top level of the build to build just the library.
+
+Then there’s a general clean rule and a module-specific clean (for the library module there’s a rule called clean-library to just clean its objects). clean is implemented as a simple rm -rf because all the output is organized in a specific subdirectory of _OUTTOP.
+
+After that a $(shell) is used to set up the directory where the module’s output will go. Finally, specific rules associate the object files in this module’s output directory with source files in this module’s source directory.
+
+With all that infrastructure in place, we can finally come to the makefile in the executable directory:
+
+sp :=
+sp +=
+_walk = $(if $1,$(wildcard /$(subst $(sp),/,$1)/$2) $(call _walk,$(wordlist 2,$(words $1),x $1),$2))
+_find = $(firstword $(call _walk,$(strip $(subst /, ,$1)),$2))
+_ROOT := $(patsubst %/root.mak,%,$(call _find,$(CURDIR),root.mak))
+
+include $(_ROOT)/root.mak
+
+$(call DEPENDS_ON,library)
+
+include $(_ROOT)/top.mak
+
+SRCS := foo.c bar.c
+BINARY := exec
+BINARY_EXT := $(_EXEEXT)
+DEPS := $(library_BINARY)
+
+include $(_ROOT)/bottom.mak
+
+This looks a lot like the makefile for the library, but there are differences. Because the executable needs the library, the DEPS line specifies that the executable depends on the binary file created by the library. And because each module has unique variables for objects and binaries, it’s easy to define that dependency by referring to $(library_BINARY), which will expand to the full path to the library file created by the library module.
+
+To ensure that $(library_BINARY) is defined, it’s necessary to include the makefile from the library directory. The root.mak file provides two functions that make this trivial: DEPENDS_ON and DEPENDS_ON_NO_BUILD.
+
+DEPENDS_ON_NO_BUILD just sets up the variables for the specified module so they can be used in the makefile. If that function were used in the executable makefile, the library (lib.a) would have to exist for the executable to build successfully. On the other hand, DEPENDS_ON is used here to ensure that the library will get built if necessary.
+
+DEPENDS_ON_NO_BUILD provides functionality similar to a classic recursive build, which doesn’t know how to build that library but depends on it. DEPENDS_ON is more flexible because without recursion, you can specify a relationship and make sure that code is built.
+Using the Non-recursive make System
+
+The non-recursive make system provides great flexibility. Here are a few examples that illustrate that the non-recursive make system is just as flexible as a recursive one (and more so!).
+
+Building everything from the top level is a simple make (in these examples, we use the command make -n so the commands are clearly shown):
+
+$ cd /src
+$ make -n
+cc  -c -o '/tmp/out/library/lib1.o' '/home/jgc/doc/nonrecursive/library/lib1.c'
+cc  -c -o '/tmp/out/library/lib2.o' '/home/jgc/doc/nonrecursive/library/lib2.c'
+ar r '/tmp/out/library/lib.a' /tmp/out/library/lib1.o /tmp/out/library/lib2.o
+ranlib '/tmp/out/library/lib.a'
+cc  -c -o '/tmp/out/executable/foo.o' '/home/jgc/doc/nonrecursive/executable/foo.c'
+cc  -c -o '/tmp/out/executable/bar.o' '/home/jgc/doc/nonrecursive/executable/bar.c'
+g++ /tmp/out/executable/foo.o /tmp/out/executable/bar.o /tmp/out/library/lib.a -o'/tmp/out/
+executable/exec'
+
+Cleaning everything is simple too:
+
+$ cd /src
+$ make -n clean
+rm -rf /tmp/out/library
+rm -rf /tmp/out/executable
+
+From the top-level directory, it’s possible to ask for any individual module to be built or cleaned:
+
+$ cd /src
+$ make -n clean-library
+rm -rf /tmp/out/library
+$ make -n library
+cc  -c -o '/tmp/out/library/lib1.o' '/home/jgc/doc/nonrecursive/library/lib1.c'
+cc  -c -o '/tmp/out/library/lib2.o' '/home/jgc/doc/nonrecursive/library/lib2.c'
+ar r '/tmp/out/library/lib.a' /tmp/out/library/lib1.o /tmp/out/library/lib2.o
+ranlib '/tmp/out/library/lib.a'
+
+And if we ask that the executable module be built, the library gets built at the same time because of the dependency:
+
+$ cd /src
+$ make -n executable
+cc -c -o '/tmp/out/executable/foo.o' '/home/jgc/doc/nonrecursive/executable/foo.c'
+cc -c -o '/tmp/out/executable/bar.o' '/home/jgc/doc/nonrecursive/executable/bar.c'
+cc -c -o '/tmp/out/library/lib1.o' '/home/jgc/doc/nonrecursive/library/lib1.c'
+cc -c -o '/tmp/out/library/lib2.o' '/home/jgc/doc/nonrecursive/library/lib2.c'
+ar r '/tmp/out/library/lib.a' /tmp/out/library/lib1.o /tmp/out/library/lib2.o
+ranlib '/tmp/out/library/lib.a'
+g++ /tmp/out/executable/foo.o /tmp/out/executable/bar.o /tmp/out/library/lib.a -o'/tmp/out/
+executable/exec'
+
+Okay, so much for the top level. If we pop down into the library module, we can build or clean it just as easily:
+
+$ cd /src/library
+$ make -n clean
+rm -rf /tmp/out/library
+$ make -n
+cc  -c -o '/tmp/out/library/lib1.o' '/home/jgc/doc/nonrecursive/library/lib1.c'
+cc  -c -o '/tmp/out/library/lib2.o' '/home/jgc/doc/nonrecursive/library/lib2.c'
+ar r '/tmp/out/library/lib.a' /tmp/out/library/lib1.o /tmp/out/library/lib2.o
+ranlib '/tmp/out/library/lib.a'
+
+Of course, doing this in the executable directory will build the library as well:
+
+$ cd /src/executable
+$ make -n
+cc  -c -o '/tmp/out/library/lib1.o' '/home/jgc/doc/nonrecursive/library/lib1.c'
+cc  -c -o '/tmp/out/library/lib2.o' '/home/jgc/doc/nonrecursive/library/lib2.c'
+ar r '/tmp/out/library/lib.a' /tmp/out/library/lib1.o /tmp/out/library/lib2.o
+ranlib '/tmp/out/library/lib.a'
+cc  -c -o '/tmp/out/executable/foo.o' '/home/jgc/doc/nonrecursive/executable/foo.c'
+cc  -c -o '/tmp/out/executable/bar.o' '/home/jgc/doc/nonrecursive/executable/bar.c'
+g++   /tmp/out/executable/foo.o /tmp/out/executable/bar.o /tmp/out/library/lib.a -o'/tmp/out/
+executable/exec'
+
+What About Submodules?
+
+Suppose that the source tree was actually
+
+/src/
+/src/library/
+/src/library/sublibrary
+/src/executable/
+
+where there’s an additional sublibrary under the library that builds slib.a from slib1.c and slib2.c using the following makefile:
+
+sp :=
+sp +=
+_walk = $(if $1,$(wildcard /$(subst $(sp),/,$1)/$2) $(call _walk,$(wordlist 2,$(words $1),x $1),$2))
+_find = $(firstword $(call _walk,$(strip $(subst /, ,$1)),$2))
+_ROOT := $(patsubst %/root.mak,%,$(call _find,$(CURDIR),root.mak))
+
+include $(_ROOT)/root.mak
+include $(_ROOT)/top.mak
+
+SRCS := slib1.c slib2.c
+BINARY := slib
+BINARY_EXT := $(_LIBEXT)
+
+include $(_ROOT)/bottom.mak
+
+To specify that library has a dependency of sublibrary is as simple as adding a DEPENDS_ON call to the makefile in the library directory:
+
+sp :=
+sp +=
+_walk = $(if $1,$(wildcard /$(subst $(sp),/,$1)/$2) $(call _walk,$(wordlist 2,$(words $1),x $1),$2))
+_find = $(firstword $(call _walk,$(strip $(subst /, ,$1)),$2))
+_ROOT := $(patsubst %/root.mak,%,$(call _find,$(CURDIR),root.mak))
+
+include $(_ROOT)/root.mak
+
+$(call DEPENDS_ON,library/sublibrary)
+
+include $(_ROOT)/top.mak
+
+SRCS := lib1.c lib2.c
+BINARY := lib
+BINARY_EXT := $(_LIBEXT)
+
+include $(_ROOT)/bottom.mak
+
+In this example, there’s no DEPS line, so the library doesn’t depend on sublibrary at the object level. We’re simply declaring sublibrary as a submodule of library that needs to be built if library is.
+
+Going back and repeating the previous examples, we see that the sublibrary has been successfully included in the library build (and automatically in the executable build).
+
+Here’s the full build from the top, followed by a clean:
+
+$ cd /src
+$ make -n
+cc  -c -o '/tmp/out/library/sublibrary/slib1.o' '/home/jgc/doc/nonrecursive/library/sublibrary/
+slib1.c'
+cc  -c -o '/tmp/out/library/sublibrary/slib2.o' '/home/jgc/doc/nonrecursive/library/sublibrary/
+slib2.c'
+ar r '/tmp/out/library/sublibrary/slib.a' /tmp/out/library/sublibrary/slib1.o /tmp/out/library/
+sublibrary/slib2.o
+ranlib '/tmp/out/library/sublibrary/slib.a'
+cc  -c -o '/tmp/out/library/lib1.o' '/home/jgc/doc/nonrecursive/library/lib1.c'
+cc  -c -o '/tmp/out/library/lib2.o' '/home/jgc/doc/nonrecursive/library/lib2.c'
+ar r '/tmp/out/library/lib.a' /tmp/out/library/lib1.o /tmp/out/library/lib2.o
+ranlib '/tmp/out/library/lib.a'
+cc  -c -o '/tmp/out/executable/foo.o' '/home/jgc/doc/nonrecursive/executable/foo.c'
+cc  -c -o '/tmp/out/executable/bar.o' '/home/jgc/doc/nonrecursive/executable/bar.c'
+g++   /tmp/out/executable/foo.o /tmp/out/executable/bar.o /tmp/out/library/lib.a -o'/tmp/out/
+executable/exec'
+$ make -n clean
+rm -rf /tmp/out/library/sublibrary
+rm -rf /tmp/out/library
+rm -rf /tmp/out/executable
+
+Here, we ask for the sublibrary to be built:
+
+$ cd /src
+$ make -n clean-library_sublibrary
+rm -rf /tmp/out/library/sublibrary
+$ make -n library_sublibrary
+cc -c -o '/tmp/out/library/sublibrary/slib1.o' '/home/jgc/doc/nonrecursive/library/sublibrary/
+slib1.c'
+cc -c -o '/tmp/out/library/sublibrary/slib2.o' '/home/jgc/doc/nonrecursive/library/sublibrary/
+slib2.c'
+ar r '/tmp/out/library/sublibrary/slib.a' /tmp/out/library/sublibrary/slib1.o /tmp/out/library/
+sublibrary/slib2.o
+ranlib '/tmp/out/library/sublibrary/slib.a'
+
+And if we ask that the executable module be built, the library gets built at the same time (and also the sublibrary) because of the dependency:
+
+$ cd /src/executable
+$ make -n executable
+cc  -c -o '/tmp/out/library/sublibrary/slib1.o' '/home/jgc/doc/nonrecursive/library/sublibrary/
+slib1.c'
+cc  -c -o '/tmp/out/library/sublibrary/slib2.o' '/home/jgc/doc/nonrecursive/library/sublibrary/
+slib2.c'
+ar r '/tmp/out/library/sublibrary/slib.a' /tmp/out/library/sublibrary/slib1.o /tmp/out/library/
+sublibrary/slib2.o
+ranlib '/tmp/out/library/sublibrary/slib.a'
+cc  -c -o '/tmp/out/library/lib1.o' '/home/jgc/doc/nonrecursive/library/lib1.c'
+cc  -c -o '/tmp/out/library/lib2.o' '/home/jgc/doc/nonrecursive/library/lib2.c'
+ar r '/tmp/out/library/lib.a' /tmp/out/library/lib1.o /tmp/out/library/lib2.o
+ranlib '/tmp/out/library/lib.a'
+cc  -c -o '/tmp/out/executable/foo.o' '/home/jgc/doc/nonrecursive/executable/foo.c'
+cc  -c -o '/tmp/out/executable/bar.o' '/home/jgc/doc/nonrecursive/executable/bar.c'
+g++   /tmp/out/executable/foo.o /tmp/out/executable/bar.o /tmp/out/library/lib.a -o'/tmp/out/
+executable/exec'
+
+Although not as simple to code as a recursive make, this non-recursive system is very flexible. It allows dependencies between individual binary files across modules, which is not possible with recursive make, and it allows this without losing the “go to any directory and type make” notion that engineers know.
+
+GNU make is incredibly powerful (which is partly why it’s still around after so many years), but when projects become large, makefiles can get unwieldy. With what you learned in this chapter, you can now simplify makefiles to work around GNU make’s weaknesses so that large projects are made simpler and more reliable.

@@ -1,0 +1,939 @@
+Search 50,000+ courses, events, titles, and more
+4. Pitfalls and Problems
+5. Pushing the Envelope
+6. The GNU Make Standard Library
+55m remaining
+Chapter 5. Pushing the Envelope
+
+In this chapter, you’ll find techniques that you usually won’t need but can, from time to time, be very useful. For example, sometimes it’s useful to extend GNU make’s language by creating new functions in C or even Guile. This chapter shows how to do that and more.
+Doing Arithmetic
+
+GNU make has no built-in arithmetic capability. But it is possible to create functions for addition, subtraction, multiplication, and division of integers. You can also create functions for integer comparisons, such as greater than or not equal. These functions are implemented entirely using GNU make’s built-in list and string manipulation functions: $(subst), $(filter), $(filter-out), $(words), $(wordlist), $(call), $(foreach), and $(if). After we define our arithmetic functions, we’ll implement a simple calculator in GNU make.
+
+To create an arithmetic library, we first need a representation of numbers. A simple way to represent a number is with a list containing that number of items. For example, for the arithmetic library, a number is a list of letter xs. So the number 5 is represented by x x x x x.
+
+Given this representation, we can use the $(words) function to convert from the internal form (all xs) to a human-readable form. For example, the following will output 5:
+
+five := x x x x x
+
+all: ; @echo $(words $(five))
+
+Let’s create a user-defined function decode to translate from the x representation to a number:
+
+decode = $(words $1)
+
+To use decode in a makefile, we need to use the GNU make function $(call), which can call a user-defined function with a set of arguments:
+
+five := x x x x x
+
+all: ; @echo $(call decode,$(five))
+
+The arguments will be stored in temporary variables called $1, $2, $3, and so on. In decode, which takes one argument—the number to decode—we just use $1.
+Addition and Subtraction
+
+Now that we have a representation, we can define functions for addition, increment (by 1), and decrement (by 1):
+
+plus = $1 $2
+increment = x $1
+decrement = $(wordlist 2,$(words $1),$1)
+
+The plus function makes a list of its two arguments; concatenation is enough to implement addition with the x representation. The increment function adds a single x to its argument. decrement strips the first x off its argument by asking for the entire string of xs starting from index 2. For example, the following code will output 11:
+
+two := x x
+three := x x x
+four := x x x x
+five := x x x x x
+six := x x x x x x
+
+all: ; @echo $(call decode,$(call plus,$(five),$(six)))
+
+Notice the nested calls to plus inside a call to decode so that we output the number 11 instead of a list of 11 xs.
+
+We can create another simple function, double, which doubles its argument:
+
+double = $1 $1
+
+Implementing subtraction is more challenging that addition. But before we do that, let’s implement max and min functions:
+
+max = $(subst xx,x,$(join $1,$2))
+min = $(subst xx,x,$(filter xx,$(join $1,$2)))
+
+The max function uses two GNU make built-in functions: $(join) and $(subst). $(join LIST1,LIST2) takes two lists as arguments and joins the two lists together by concatenating the first element of LIST1 with the first element of LIST2 and so on through the list. If one list is longer than the other, the remaining items are just appended.
+
+$(subst FROM,TO,LIST) runs through a list and substitutes elements that match a FROM pattern with the TO value. To see how max works, consider the sequence of events in computing $(call max,$(five),$(six)):
+
+$(call max,$(five),$(six))
+→  $(call max,x x x x x,x x x x x x)
+→  $(subst xx,x,$(join x x x x x,x x x x x x))
+→  $(subst xx,x,xx xx xx xx xx x)
+→  x x x x x x
+
+First, $(join) joins the list with five xs with the list with six xs, resulting in a list with six elements, the first five of which are xx. Then, $(subst) turns the first five xxs into xs. The final result is six xs, which is the maximum.
+
+To implement min, we use a similar trick, but we keep only the xxs and throw away the xs:
+
+$(call min,$(five),$(six))
+→  $(call min,x x x x x,x x x x x x)
+→  $(subst xx,x,$(filter xx,$(join x x x x x,x x x x x x)))
+→  $(subst xx,x,$(filter xx,xx xx xx xx xx x))
+→  $(subst xx,x,xx xx xx xx xx)
+→  x x x x x
+
+The xxs represent where the two lists could be joined. The shorter of the two lists will have only xxs. The $(filter PATTERN,LIST) function runs through the list and removes elements that do not match the pattern.
+
+A similar pattern works for subtraction:
+
+subtract = $(if $(call gte,$1,$2),          \
+       $(filter-out xx,$(join $1,$2)),      \
+       $(warning Subtraction underflow))
+
+For a moment, ignore the $(warning) and $(if) parts of the definition, and focus on $(filter-out). $(filter-out) is the opposite of $(filter): it removes elements from a list that match the pattern. For example, we can see that the $(filter-out) here implements subtraction:
+
+$(filter-out xx,$(join $(six),$(five)))
+→  $(filter-out xx,$(join x x x x x x,x x x x x))
+→  $(filter-out xx,xx xx xx xx xx x)
+→  x
+
+Unfortunately, this would also work if five and six were reversed, so we first need to check that the first argument is greater than or equal to the second. In the subtract definition, the special function gte (greater than or equal) returns a non-empty string if its first argument is greater than its second. We use gte to decide whether to do the subtraction or output a warning message using $(warning).
+
+The gte function is implemented using two other functions for greater than (gt) and equal (eq):
+
+gt = $(filter-out $(words $2),$(words $(call max,$1,$2)))
+eq = $(filter $(words $1),$(words $2))
+gte = $(call gt,$1,$2)$(call eq,$1,$2)
+
+gte will return a non-empty string if either gt or eq returns a non-empty string.
+
+The eq function is a bit of a mind-bender. It works out the number of elements in its two arguments, treats one argument as a pattern and the other as a list, and uses $(filter) to decide whether they are the same. Here’s an example where they are equal:
+
+$(call eq,$(five),$(five))
+→  $(call eq,x x x x x,x x x x x)
+→  $(filter $(words x x x x x),$(words x x x x x))
+→  $(filter 5,5)
+→  5
+
+The eq function converts both $(five)s to a list of five xs. These are then both converted to the number 5 using $(words). The two 5s are fed to $(filter). Because the two arguments of $(filter) are the same, the result is 5 and because 5 is not an empty string, it is interpreted as meaning true.
+
+Here’s what happens when they are not:
+
+$(call eq,$(five),$(six))
+→  $(call eq,x x x x x,x x x x x x)
+→  $(filter $(words x x x x x),$(words x x x x x x))
+→  $(filter 5,6)
+
+This proceeds as for $(call eq,$(five),$(five)) but with $(six) in place of one of the $(five)s. Since $(filter 5,6) is an empty string, the result is false.
+
+So the $(filter) function acts as a kind of string equality operator; the two strings in our case are the lengths of the two number strings. The gt function is implemented in a similar way: it returns a non-empty string if the length of the first number string is not equal to the maximum of the two number strings. Here’s an example:
+
+$(call gt,$(six),$(five))
+→  $(call gt,x x x x x x,x x x x x)
+→  $(filter-out $(words x x x x x),
+   $(words $(call max,x x x x x x,x x x x x)))
+→  $(filter-out $(words x x x x x),$(words x x x x x x))
+→  $(filter-out 5,6)
+→  6
+
+The gt function works in a manner similar to eq (described previously) but uses $(filter-out) instead of $(filter). It converts both x-representation numbers to digits but compares—using $(filter-out)—the first of them against the max of the two. When the first number is greater than the second, two different numbers are fed to $(filter-out). Because they are different, $(filter-out) returns a non-empty string indicating true.
+
+Here’s an example in which the first number is less than the second:
+
+$(call gt,$(five),$(six))
+→  $(call gt,x x x x x,x x x x x x)
+→  $(filter-out $(words x x x x x x),
+   $(words $(call max,x x x x x x,x x x x x)))
+→  $(filter-out $(words x x x x x x),$(words x x x x x x))
+→  $(filter-out 6,6)
+
+Here, because the max of the two numbers is the same as the second number (because it’s the largest), $(filter-out) is fed the same number and returns an empty string indicating false.
+
+Similarly, we can define not-equal (ne), less-than (lt), and less-than-or-equal (lte) operators:
+
+lt = $(filter-out $(words $1),$(words $(call max,$1,$2)))
+ne = $(filter-out $(words $1),$(words $2))
+lte = $(call lt,$1,$2)$(call eq,$1,$2)
+
+lte is defined in terms of lt and eq. Because a non-empty string means true, lte just concatenates the values returned by lt and eq; if either returned true, then lte returns true.
+Multiplication and Division
+
+We’ll have a pretty powerful arithmetic package after we define just three more functions: multiply, divide, and encode. encode is a way to create a number string of xs from an integer; we’ll leave that for last and then implement our calculator.
+
+Multiplication uses the $(foreach VAR,LIST,DO) function. It sets that variable named VAR to each element of LIST and does whatever DO says. So multiplication is easy to implement:
+
+multiply = $(foreach a,$1,$2)
+
+multiply just strings together its second argument for however many xs there are in the first argument. For example:
+
+$(call multiply,$(two),$(three))
+→  $(call multiply,x x,x x x)
+→  $(foreach a,x x,x x x)
+→  x x x x x x
+
+divide is the most complex function of the lot because it requires recursion:
+
+divide = $(if $(call gte,$1,$2),             \
+    x $(call divide,$(call subtract,$1,$2),$2),)
+
+If its first argument is less than its second, division returns 0 because the ELSE part of the $(if) is empty (see the ,) at the end). If division is possible, divide works by repeated subtraction of the second argument from the first, using the subtract function. Each time it subtracts, it adds an x and calls divide again. Here’s an example:
+
+$(call divide,$(three),$(two))
+→  $(call divide,x x x,x x)
+→  $(if $(call gte,x x x,x x),
+   x $(call divide,$(call subtract,x x x,x x),x x),)
+
+→  x $(call divide,$(call subtract,x x x,x x),x x)
+→  x $(call divide,x,x x)
+→  x $(if $(call gte,x,x x),
+   x $(call divide,$(call subtract,x,x x),x x),)
+
+→  x
+
+First, gte returns a non-empty string, so recursion happens. Next, gte returns an empty string, so no more recursion occurs.
+
+We can avoid recursion in the special case of division by 2; we define the halve function to be the opposite of double:
+
+halve = $(subst xx,x,      \
+   $(filter-out xy x y,    \
+     $(join $1,$(foreach a,$1,y x))))
+
+By now you’ve seen all the functions used in halve. Work through an example, say $(call halve,$(five)), to see how it works.
+
+The only tricky thing to do is turn a number a user enters into a string of xs. The encode function does this by deleting a substring of xs from a predefined list of xs:
+
+16 := x x x x x x x x x x x x x x x x
+input_int := $(foreach a,$(16),      \
+       $(foreach b,$(16),            \
+        $(foreach c,$(16),$(16)))))
+
+encode = $(wordlist 1,$1,$(input_int))
+
+Here we are limited to entering numbers up to 65536. We can fix that by changing the number of xs in input_int. Once we have the number in the encoding, only available memory limits the size of integers we can work with.
+Using Our Arithmetic Library: A Calculator
+
+To really show off this library, here’s an implementation of a Reverse Polish Notation calculator written entirely in GNU make functions:
+
+stack :=
+
+push = $(eval stack := $$1 $(stack))
+pop = $(word 1,$(stack))$(eval stack := $(wordlist 2,$(words $(stack)),$(stack)))
+pope = $(call encode,$(call pop))
+pushd = $(call push,$(call decode,$1))
+comma := ,
+calculate = $(foreach t,$(subst $(comma), ,$1),$(call handle,$t))$(stack)
+seq = $(filter $1,$2)
+handle = $(call pushd,                            \
+    $(if $(call seq,+,$1),                        \
+      $(call plus,$(call pope),$(call pope)),     \
+      $(if $(call seq,-,$1),                      \
+      $(call subtract,$(call pope),$(call pope)), \
+        $(if $(call seq,*,$1),                    \
+     $(call multiply,$(call pope),$(call pope)),  \
+        $(if $(call seq,/,$1),                    \
+       $(call divide,$(call pope),$(call pope)),  \
+           $(call encode,$1))))))
+
+.PHONY: calc
+calc: ; @echo $(call calculate,$(calc))
+
+The operators and numbers are passed into GNU make in the calc variable, separated by commas. For example:
+
+$ make calc="3,1,-,3,21,5,*,+,/"
+54
+
+Clearly, this is not what GNU make was designed for, but it does show the power of GNU make functions. Here’s the complete commented makefile:
+
+# input_int consists of 65536 x's built from the 16 x's in 16
+
+16 := x x x x x x x x x x x x x x x x
+input_int := $(foreach a,$(16),$(foreach b,$(16),$(foreach c,$(16),$(16)))))
+
+# decode turns a number in x's representation into an integer for human
+# consumption
+
+decode = $(words $1)
+
+# encode takes an integer and returns the appropriate x's
+# representation of the number by chopping $1 x's from the start of
+# input_int
+
+encode = $(wordlist 1,$1,$(input_int))
+
+# plus adds its two arguments, subtract subtracts its second argument
+# from its first if and only if this would not result in a negative result
+
+plus = $1 $2
+
+subtract = $(if $(call gte,$1,$2),     \
+       $(filter-out xx,$(join $1,$2)), \
+       $(warning Subtraction underflow))
+
+# multiply multiplies its two arguments and divide divides its first
+# argument by its second
+
+multiply = $(foreach a,$1,$2)
+divide = $(if $(call gte,$1,$2),x $(call divide,$(call subtract,$1,$2),$2),)
+
+# max returns the maximum of its arguments and min the minimum
+
+max = $(subst xx,x,$(join $1,$2))
+min = $(subst xx,x,$(filter xx,$(join $1,$2)))
+
+# The following operators return a non-empty string if their result is true:
+#
+# gt First argument is greater than second argument
+# gte First argument is greater than or equal to second argument
+# lt First argument is less than second argument
+
+# lte First argument is less than or equal to second argument
+# eq First argument is numerically equal to the second argument
+# ne First argument is not numerically equal to the second argument
+
+gt = $(filter-out $(words $2),$(words $(call max,$1,$2)))
+lt = $(filter-out $(words $1),$(words $(call max,$1,$2)))
+eq = $(filter $(words $1),$(words $2))
+ne = $(filter-out $(words $1),$(words $2))
+gte = $(call gt,$1,$2)$(call eq,$1,$2)
+lte = $(call lt,$1,$2)$(call eq,$1,$2)
+
+# increment adds 1 to its argument, decrement subtracts 1. Note that
+# decrement does not range check and hence will not underflow, but
+# will incorrectly say that 0 - 1 = 0
+
+increment = $1 x
+decrement = $(wordlist 2,$(words $1),$1)
+
+# double doubles its argument, and halve halves it
+
+double = $1 $1
+halve = $(subst xx,x,$(filter-out xy x y,$(join $1,$(foreach a,$1,y x))))
+
+# This code implements a Reverse Polish Notation calculator by
+# transforming a comma-separated list of operators (+ - * /) and
+# numbers stored in the calc variable into the appropriate calls to
+# the arithmetic functions defined in this makefile.
+
+# This is the current stack of numbers entered into the calculator. The push
+# function puts an item onto the top of the stack (the start of the list), and
+# pop removes the top item.
+
+stack :=
+
+push = $(eval stack := $$1 $(stack))
+pop = $(word 1,$(stack))$(eval stack := $(wordlist 2,$(words $(stack)),$(stack)))
+
+# pope pops a number off the stack and encodes it
+# and pushd pushes a number onto the stack after decoding
+
+pope = $(call encode,$(call pop))
+pushd = $(call push,$(call decode,$1))
+
+# calculate runs through the input numbers and operations and either
+# pushes a number on the stack or pops two numbers off and does a
+# calculation followed by pushing the result back. When calculate is
+# finished, there will be one item on the stack, which is the result.
+
+comma := ,
+calculate=$(foreach t,$(subst $(comma), ,$1),$(call handle,$t))$(stack)
+
+# seq is a string equality operator that returns true (a non-empty
+# string) if the two strings are equal
+
+seq = $(filter $1,$2)
+
+# handle is used by calculate to handle a single token. If it's an
+# operator, the appropriate operator function is called; if it's a
+# number, it is pushed.
+
+handle = $(call pushd,                            \
+      $(if $(call seq,+,$1),                      \
+        $(call plus,$(call pope),$(call pope)),   \
+        $(if $(call seq,-,$1),                    \
+      $(call subtract,$(call pope),$(call pope)), \
+          $(if $(call seq,*,$1),                  \
+      $(call multiply,$(call pope),$(call pope)), \
+            $(if $(call seq,/,$1),                \
+       $(call divide,$(call pope),$(call pope)),  \
+              $(call encode,$1))))))
+
+.PHONY: calc
+calc: ; @echo $(call calculate,$(calc))
+
+You’ll get a closer look at these techniques in Chapter 6 when you learn about the GNU Make Standard Library.
+Making an XML Bill of Materials
+
+With standard GNU make output, it’s difficult to answer the question of what got built and why. This section presents a simple technique to get GNU make to create an XML file containing a bill of materials (BOM). The BOM contains the names of all the files built by the makefile and is nested to show the prerequisites of each file.
+An Example Makefile and BOM
+
+Example 5-1 shows an example makefile. We’ll look at its BOM and then work backward to see how the BOM JSON file was generated.
+
+Example 5-1. A simple makefile to illustrate the BOM
+
+all: foo bar
+→  @echo Making $@
+
+foo: baz
+→  @echo Making $@
+
+bar:
+→  @echo Making $@
+
+baz:
+→  @echo Making $@
+
+This makes all from foo and bar. In turn, foo is made from baz. Running this code in GNU make produces the following output:
+
+$ make
+Making baz
+Making foo
+Making bar
+Making all
+
+From the output, it’s impossible to identify the tree-ordering of the build or which files depend on which. In this case, the makefile is small and relatively easy to trace by hand; in a real makefile, hand tracing is almost impossible.
+
+It would be nice to produce output like that shown in Example 5-2 that shows what was built and why:
+
+Example 5-2. An XML document showing the structure of the example makefile
+
+<rule target="all">
+<prereq>
+ <rule target="foo">
+  <prereq>
+   <rule target="baz" />
+  </prereq>
+ </rule>
+ <rule target="bar" />
+</prereq>
+</rule>
+
+Here, each rule run by the makefile has a <rule> tag added with a target attribute giving the name of the target that the rule built. If the rule had any prerequisites, within the <rule>/</rule> pair a list of prerequisite rules would be enclosed in <prereq>/</prereq>.
+
+You can see the structure of the makefile reflected in the nesting of the tags. Loading the XML document into an XML editor (or simply into a web browser) allows you to expand and contract the tree at will to explore the structure of the makefile.
+How It Works
+
+To create the output shown in Example 5-2, the example makefile is modified to include a special bom makefile using the standard include bom method. With that included, we can generate the XML output by running GNU make using a command line, such as make bom-all.
+
+bom-all instructs GNU make to build the BOM starting with the all target. It’s as if you typed make all, but now an XML document will be created.
+
+By default, the XML document has the same name as the makefile but with .xml appended. If the example makefile was in example.mk, the XML document created would be called example.mk.xml.
+
+Example 5-3 shows the contents of the bom makefile to include:
+
+Example 5-3. The bom makefile that creates XML BOMs
+
+➊ PARENT_MAKEFILE := $(word $(words $(MAKEFILE_LIST)),x $(MAKEFILE_LIST))
+➋ bom-file := $(PARENT_MAKEFILE).xml
+
+➌ bom-old-shell := $(SHELL)
+➍ SHELL = $(bom-run)$(bom-old-shell)
+
+   bom-%: %
+➎ → @$(shell rm -f $(bom-file))$(call bom-dump,$*)
+   bom-write = $(shell echo '$1' >> $(bom-file))
+➏ bom-dump = $(if $(bom-prereq-$1),$(call bom-write,<rule target="$1">)      \
+   $(call bom-write,<prereq>)$(foreach p,$(bom-prereq-$1),                    \
+   $(call bom-dump,$p))$(call bom-write,</prereq>)$(call bom-write,</rule>),  \
+   $(call bom-write,<rule target="$1" />))
+
+➐ bom-run = $(if $@,$(eval bom-prereq-$@ := $^))
+
+First we determine the correct name for the XML file by extracting the name of the makefile that included bom into PARENT_MAKEFILE ➊, appending .xml, and storing the resulting name in bom-file ➋.
+
+Then we use a trick that’s appeared in this book a number of times: the SHELL hack. GNU make will expand the value of $(SHELL) for every rule that’s run in the makefile. And at the time that $(SHELL) is expanded, the per-rule automatic variables (such as $@) have already been set. So by modifying SHELL, we can perform some task for every rule in the makefile as it runs.
+
+At ➌, we store the original value of SHELL in bom-old-shell using an immediate assignment (:=), and we then redefine SHELL to be the expansion of $(bom-run) and the original shell at ➍. Because $(bom-run) actually expands to an empty string, the effect is that bom-run is expanded for each rule in the makefile, but the actual shell used is unaffected.
+
+bom-run is defined at ➐. It uses $(eval) to store the relationship between the current target being built (the $(if) ensures that $@ is defined) and its prerequisites. For example, when foo is being built, a call will be made to bom-run with $@ set to foo and $^ (the list of all prerequisites) set to baz. bom-run will set the value of bom-prereq-foo to baz. Later, the values of these bom-prereq-X variables are used to print out the XML tree.
+
+At ➎, we define the pattern rule that handles the bom-% target. Because the prerequisite of bom-% is %, this pattern rule has the effect of building the target matching the % and then building bom-%. In our example, running make bom-all matches against this pattern rule to build all and then run the commands associated with bom-% with $* set to all.
+
+bom-%’s commands first delete the bom-file and then recursively dump out the XML starting from $*. In this example, where the user did make bom-all, the bom-% commands call bom-dump with the argument all.
+
+We define bom-dump at ➏. It’s fairly routine: it uses a helper function bom-write to echo fragments of XML to the bom-file and calls itself for each of the targets in the prerequisites of each target it is dumping. Prerequisites are extracted from the bom-prereq-X variables created by bom-run.
+Gotchas
+
+The technique in Example 5-3 comes with a few gotchas. One gotcha is that the technique can end up producing enormous amounts of output. This is because it will print the entire tree below any target. If a target appears multiple times in the tree, a large tree can be repeated many times in the output. Even for small projects, this can make the dump time for the XML very lengthy.
+
+As a workaround, we can change the definition of bom-dump to just dump the prerequisite information once for each target. This is much faster than the approach in Example 5-3 and could be processed by a script like the following to help understand the structure of the make:
+
+bom-%: %
+→  @$(shell rm -f $(bom-file))$(call bom-write,<bom>)$(call bom-dump,$*)$(call bom-write,</bom>)
+
+bom-write = $(shell echo '$1' >> $(bom-file))
+
+bom-dump = $(if $(bom-prereq-$1),$(call bom-write,<rule target="$1">) \
+$(call bom-write,<prereq>)$(foreach p,$(bom-prereq-$1),               \
+$(call bom-write,<rule target="$p" />))$(call bom-write,</prereq>)    \
+$(call bom-write,</rule>),$(call bom-write,<rule target="$1" />))     \
+$(foreach p,$(bom-prereq-$1),$(call bom-dump,$p))$(eval bom-prereq-$1 := )
+
+For the example makefile in Example 5-1, the XML document now looks like this:
+
+<bom>
+<rule target="all">
+ <prereq>
+  <rule target="foo" />
+  <rule target="bar" />
+ </prereq>
+</rule>
+<rule target="foo">
+ <prereq>
+  <rule target="baz" />
+ </prereq>
+</rule>
+<rule target="baz" />
+<rule target="bar" />
+</bom>
+
+Another gotcha is that if the makefile includes rules with no commands, those rules will cause a break in the tree outputted by the technique in Example 5-3. For example, if the example makefile were this:
+
+all: foo bar
+→ @echo Making $@
+
+foo: baz
+
+bar:
+→ @echo Making $@
+
+baz:
+→ @echo Making $@
+
+the resulting XML would not mention baz at all because the rule for foo doesn’t have any commands. So SHELL is not expanded, and the hack doesn’t work. Here’s the XML in that case:
+
+<bom>
+<rule target="all">
+ <prereq>
+  <rule target="foo" />
+  <rule target="bar" />
+ </prereq>
+</rule>
+<rule target="foo" />
+<rule target="bar" />
+</bom>
+
+As a workaround, we can modify foo: baz to include a useless command:
+
+foo: baz ; @true
+
+Now the correct results will be generated.
+Advanced User-Defined Functions
+
+In Chapter 1, we looked at creating user-defined functions in GNU make. Now we’ll look inside the GNU make source code to see how we can enhance GNU make with our own built-in functions by writing some C code.
+
+First, we get the GNU make source code from the Free Software Foundation. For this section, I’m working with GNU make 3.81. Things haven’t changed much with GNU make 3.82 or 4.0.
+
+Download make-3.81.tar.gz, and gunzip and untar, and then build GNU make using the standard configure and make:
+
+$ cd make-3.81
+$ ./configure
+$ make
+
+With that done, we are left with a working GNU make in the same directory.
+Getting Started Modifying GNU make
+
+It’s handy to be able to tell which GNU make you’re running, so as a first modification let’s change the message printed out when we ask for the version information. Here’s the default:
+
+$ ./make -v
+GNU Make 3.81
+Copyright (C) 2006 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.
+There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.
+
+This program built for i386-apple-darwin9.2.0
+
+As you can see, I’m working on a Mac (that final string will change depending on the machine you are working with) with GNU make version 3.81.
+
+Let’s change that message so it prints (with jgc's modifications) after the version number. To do that, we need to open the file main.c in a text editor and find the function print_version (at line 2,922), which looks like this:
+
+/* Print version information. */
+
+static void
+print_version (void)
+{
+static int printed_version = 0;
+
+char *precede = print_data_base_flag ? "# " : "";
+
+if (printed_version)
+ /* Do it only once. */
+ return;
+
+/* Print this untranslated. The coding standards recommend translating the
+  (C) to the copyright symbol, but this string is going to change every
+  year, and none of the rest of it should be translated (including the
+  word "Copyright", so it hardly seems worth it. */
+
+printf ("%sGNU Make %s\n\
+%sCopyright (C) 2006 Free Software Foundation, Inc.\n",
+    precede, version_string, precede);
+
+printf (_("%sThis is free software; see the source for copying conditions.\n\
+%sThere is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A\n\
+%sPARTICULAR PURPOSE.\n"),
+     precede, precede, precede);
+
+if (!remote_description || *remote_description == '\0')
+ printf (_("\n%sThis program built for %s\n"), precede, make_host);
+else
+ printf (_("\n%sThis program built for %s (%s)\n"),
+     precede, make_host, remote_description);
+
+printed_version = 1;
+
+/* Flush stdout so the user doesn't have to wait to see the
+  version information while things are thought about. */
+fflush (stdout);
+}
+
+The first printf in print_version is where the version number is printed. We can modify it like this:
+
+printf ("%sGNU Make %s (with jgc's modifications)\n\
+%sCopyright (C) 2006 Free Software Foundation, Inc.\n",
+    precede, version_string, precede);
+
+Save the file, and then rerun make. Now enter make -v:
+
+$ ./make -v
+GNU Make 3.81 (with jgc's modifications)
+Copyright (C) 2006 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.
+There is NO warranty; not even for MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE.
+
+This program built for i386-apple-darwin9.2.0
+
+We now know which version we’re working with.
+Anatomy of a Built-In Function
+
+GNU make’s built-in functions are defined in the file function.c. To begin understanding how this file works, take a look at the table of functions that GNU make knows about. It’s called function_table_init[] and is on line 2,046. Because it’s quite large, I’ve removed some lines from the middle:
+
+static struct function_table_entry function_table_init[] =
+{
+/* Name/size */          /* MIN MAX EXP? Function */
+{ STRING_SIZE_TUPLE("abspath"),    0, 1, 1, func_abspath},
+{ STRING_SIZE_TUPLE("addprefix"),   2, 2, 1,
+func_addsuffix_addprefix},
+{ STRING_SIZE_TUPLE("addsuffix"),   2, 2, 1,
+func_addsuffix_addprefix},
+{ STRING_SIZE_TUPLE("basename"),   0, 1, 1, func_basename_dir},
+{ STRING_SIZE_TUPLE("dir"),      0, 1, 1, func_basename_dir},
+--snip--
+
+{ STRING_SIZE_TUPLE("value"),     0, 1, 1, func_value},
+{ STRING_SIZE_TUPLE("eval"),     0, 1, 1, func_eval},
+#ifdef EXPERIMENTAL
+{ STRING_SIZE_TUPLE("eq"),      2, 2, 1, func_eq},
+{ STRING_SIZE_TUPLE("not"),      0, 1, 1, func_not},
+#endif
+};
+
+Each line defines a single function and consists of five pieces of information: the name of the function, the minimum number of arguments that the function must have, the maximum number of arguments (specifying a maximum of zero with a non-zero minimum means that the function can have an unlimited number of arguments), whether the arguments should be expanded, and the name of the C function that actually performs the function.
+
+For example, here’s the definition of the findstring function:
+
+{ STRING_SIZE_TUPLE("findstring"), 2, 2, 1, func_findstring},
+
+findstring has a minimum of two arguments and a maximum of two, and the arguments should be expanded before calling the C function func_findstring. func_findstring (in function.c at line 819) does the work:
+
+static char*
+func_findstring (char *o, char **argv, const char *funcname UNUSED)
+{
+/* Find the first occurrence of the first string in the second. */
+if (strstr (argv[1], argv[0]) != 0)
+ o = variable_buffer_output (o, argv[0], strlen (argv[0]));
+
+return o;
+}
+
+The C functions that implement GNU make built-in functions have three arguments: o (a pointer to a buffer into which output of the function should be written), argv (the arguments of the function as a null-terminated array of strings), and funcname (a string containing the name of the function; most functions don’t need this, but it can be helpful if one C routine handles more than one GNU make function).
+
+You can see that func_findstring just uses the standard C library strstr function to find the presence of its second argument (in argv[1]) in its first (in argv[0]).
+
+func_findstring uses a handy GNU make C function called variable_buffer_ output (defined in expand.c at line 57). variable_buffer_output copies a string into the output buffer o of a GNU make function. The first argument should be the output buffer, the second the string to copy, and the last the amount of the string to copy.
+
+func_findstring either copies all of its first argument (if the strstr was successful) or leaves o untouched (and hence, empty, because it is initialized to an empty string before func_findstring is called).
+
+With that, we have enough information to start making our own GNU make function.
+Reverse a String
+
+There’s no easy way to reverse a string in GNU make, but it’s easy to write a C function that does and insert it into GNU make.
+
+First, we’ll add the definition of reverse to the list of functions that GNU make knows about. reverse will have a single argument that must be expanded and will call a C function named func_reverse.
+
+Here’s the entry to add to the function_table_init[]:
+
+{ STRING_SIZE_TUPLE("reverse"), 1, 1, 1, func_reverse},
+
+Now we can define func_reverse, which reverses the string in argv[0] by swapping characters and then updates the output buffer o, as shown in Example 5-4:
+
+Example 5-4. Defining a GNU make function using C
+
+static char*
+func_reverse(char *o, char **argv, const char *funcname UNUSED)
+{
+int len = strlen(argv[0]);
+if (len > 0) {
+ char * p = argv[0];
+ int left = 0;
+ int right = len - 1;
+ while (left < right) {
+  char temp = *(p + left);
+  *(p + left) = *(p + right);
+  *(p + right) = temp;
+  left++;
+  right--;
+ }
+
+ o = variable_buffer_output(o, p, len);
+}
+
+return o;
+}
+
+This function works by walking from the start and end of the string at the same time and swapping pairs of characters until left and right meet in the middle.
+
+To test it, we can write a little makefile that tries three possibilities: an empty string, a string with even length, and a string with odd length, all calling the new built-in function reverse:
+
+EMPTY :=
+
+$(info Empty string: [$(reverse $(EMPTY))]);
+
+EVEN := 1234
+$(info Even length string: [$(reverse $(EVEN))]);
+
+ODD := ABCDE
+$(info Odd length string: [$(reverse $(ODD))]);
+
+The output shows that it works correctly:
+
+$ ./make
+Empty string: []
+Even length string: [4321]
+Odd length string: [EDCBA]
+
+Writing in C gives you access to the full range of C library functions; therefore, the GNU make built-in functions you can create are limited only by your imagination.
+GNU make 4.0 Loadable Objects
+
+Adding the reverse function to GNU make was fairly complex because we had to modify GNU make’s source code. But using GNU make 4.0 or later, you can add C functions to GNU make without changing the source code. GNU make 4.0 added a load directive you can use to load a shared object containing GNU make functions written in C.
+
+You can turn the reverse function from Example 5-4 into a loadable GNU make object by saving it in a file called reverse.c with some small modifications. Here’s the complete reverse.c file:
+
+   #include <string.h>
+   #include <gnumake.h>
+
+➊ int plugin_is_GPL_compatible;
+
+   char* func_reverse(const char *nm, unsigned int argc, char **argv)
+   {
+     int len = strlen(argv[0]);
+     if (len > 0) {
+➋     char * p = gmk_alloc(len+1);
+       *(p+len) = '\0';
+       int i;
+       for (i = 0; i < len; i++) {
+         *(p+i) = *(argv[0]+len-i-1);
+       }
+       return p;
+     }
+
+     return NULL;
+   }
+
+   int reverse_gmk_setup()
+   {
+➌   gmk_add_function("reverse", func_reverse, 1, 1, 1);
+     return 1;
+   }
+
+The reverse function is added to GNU make by the call to gmk_add_function at ➌. The function reverse is then available to use just like any other GNU make built-in function. The actual reversing of a string is handled by func_reverse, which calls a GNU make API function gmk_alloc to allocate space for the new string at ➋.
+
+At ➊ is a special, unused variable called plugin_is_GPL_compatible, which is required in any loadable module.
+
+To use the new reverse function, you need to compile the reverse.c file into a .so file and load it into GNU make:
+
+   all:
+   --snip--
+   load reverse.so
+➍ reverse.so: reverse.c ; @$(CC) -shared -fPIC -o $@ $<
+
+The load directive loads the .so, and the rule at ➍ builds the .so from the .c file. If the .so file is missing when GNU make encounters the load directive, GNU make builds it (using the rule) and then restarts, parsing the makefile from the beginning.
+
+Once loaded, you can use reverse as follows:
+
+A_PALINDROME := $(reverse saippuakivikauppias)
+
+Notice that it is not necessary to use $(call). The reverse function is just like any other built-in GNU make function.
+Using Guile in GNU make
+
+GNU make 4.0 introduced a big change with the $(guile) function. This function’s argument is sent to the built-in Guile language and is executed by it. (GNU Guile is an implementation of Scheme, which itself is Lisp.) $(guile)’s return value is the return value from the Guile code that was executed after converting to a type that GNU make recognizes. Strictly speaking, GNU make doesn’t have data types (everything is a string), although it sometimes treats strings as other types (for example, a string with spaces in it is treated as a list by many functions).
+
+Here’s how to reverse a list using $(guile) and the Guile function reverse:
+
+   NAMES := liesl friedrich louisa kurt brigitta marta gretl
+
+➊ $(info $(guile (reverse '($(NAMES)))))
+
+When run, this makefile will output:
+
+$ make
+gretl marta brigitta kurt louisa friedrich liesl
+
+It’s worth diving into ➊ to see what happens, because there are a couple of subtle points. The argument to $(guile) is first expanded by GNU make, so ➊ becomes:
+
+$(info $(guile (reverse '(liesl friedrich louisa kurt brigitta marta gretl))))
+
+So the Guile code to be executed is (reverse '(liesl friedrich louisa kurt brigitta marta gretl)). The GNU make variable $(NAMES) has been expanded into the list of names and is turned into a Guile list by wrapping it in '(...). Because Guile has data types, you must use the correct syntax: in this case, you need to surround a list with parentheses and quote it with a single quote to tell Guile that this is a literal list (not a function invocation).
+
+The Guile reverse function reverses this list and returns the reversed list. GNU make then converts the Guile list into a GNU make list (a string with spaces in it). Finally, $(info) displays the list.
+
+Because Guile is a rich language, it’s possible to create more complex functions. Here, for example, is a GNU make function called file-exists that uses the Guile access? function to determine whether a file exists. It returns a Boolean value after converting the Guile #t/#f (true/false) value returned by access? to a GNU make Boolean (a non-empty string for true or an empty string for false):
+
+file-exists = $(guile (access? "$1" R_OK))
+
+Notice the double quotes around the parameter $1. Guile needs to know that the filename is actually a string.
+
+You can build a more complex example by using the Guile http-get function to download data from the Web inside a makefile:
+
+define setup
+(use-modules (web uri))
+(use-modules (web client))
+(use-modules (ice-9 receive))
+endef
+
+$(guile $(setup))
+
+UA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_0) \
+AppleWebKit/537.36 (KHTML, like Gecko) Chrome/40.0.2214.115 \
+Safari/537.36"
+
+define get-url
+(receive (headers body)
+  (http-get
+    (string->uri "$1")
+    #:headers '((User-Agent . $(UA))))
+  body)
+endef
+utc-time = $(guile $(call get-url,http://www.timeapi.org/utc/now))
+
+$(info $(utc-time))
+
+Here, http-get gets the current UTC time from a web service that returns the time as a string in the body of the HTTP response.
+
+The utc-time variable contains the current UTC time. It works by retrieving the time from http://www.timeapi.org/utc/now/ using the Guile code stored in the get-url variable. The Guile code in get-url uses the http-get function to retrieve the header and body of a web page, and returns just the body.
+
+Notice how you can use the GNU make define directive to create large blocks of Guile code. If the Guile code becomes unwieldy, do this:
+
+$(guile (load "myfunctions.scm"))
+
+This is how you can store the Guile code in a file and load it.
+Self-Documenting Makefiles
+
+Upon encountering a new makefile, many ask “What does this makefile do?” or “What are the important targets I need to know about?” For any sizable makefile, answering those questions can be difficult. In this section, I present a simple GNU make trick that you can use to make a makefile self-documenting and print out help automatically.
+
+Before I show you how it works, here’s a small example. This makefile has three targets that the creator thinks you need to know about: all, clean, and package. They’ve documented the makefile by including some extra information with each target:
+
+include help-system.mk
+
+all: $(call print-help,all,Build all modules in Banana Wumpus system)
+→ ...commands for building all ...
+
+clean: $(call print-help,clean,Remove all object and library files)
+→ ...commands for doing a clean ...
+
+package: $(call print-help,package,Package application-must run all target first)
+→ ...commands for doing package step ...
+
+For each of the targets needing documentation, the makefile maintainer has added a call to a user-defined function print-help with two arguments: the name of the target and a brief description of that target. The call to print-help doesn’t interfere with the definition of the prerequisites of the rule because it always returns (or is expanded to) an empty string.
+
+Typing make with this makefile outputs:
+
+$ make
+Type 'make help' to get help
+
+and typing make help reveals:
+
+$ make help
+Makefile:11: all -- Build all modules in Banana Wumpus system
+Makefile:17: clean -- Remove all object and library files
+Makefile:23: package -- Package application-must run all target first
+
+make automatically prints the names of the interesting targets and includes an explanation of what they do, as well as the line number of the makefile where you can find more information about the commands for that target.
+
+The interesting work is done by the included makefile help-system.mak. help-system.mak first defines the user-defined function print-help. print-help is the function called for each target that needs documenting:
+
+define print-help
+$(if $(need-help),$(warning $1 -- $2))
+endef
+
+print-help uses GNU make’s $(warning) function to output the appropriate message based on the two parameters passed to it. The first parameter (stored in $1) is the name of the target, and the second (in $2) is the help text; they are separated by --. $(warning) writes a message to the console and returns an empty string; hence, you can safely use print-help in the prerequisite list of a rule.
+
+print-help decides whether it needs to print any message by examining the need-help variable, which will be the string help if the user specified help on the make command line, or empty if they did not. In either case, the expanded value of print-help is an empty string. need-help determines whether the user entered help on the command line by examining the built-in variable MAKECMDGOALS, which is a space-separated list of all the goals specified on the make command line. need-help filters out any goal that doesn’t match the text help and, hence, is the string help if help was in MAKECMDGOALS or empty otherwise.
+
+need-help := $(filter help,$(MAKECMDGOALS))
+
+The definition of need-help and print-help are all we need to have make print out help on each target when run with help on the command line. The rest of help-system.mak prints the message Type 'make help' to get help when the user simply types make.
+
+It defines a default goal for the makefile called help, which will be run if no other goal is specified on the command line:
+
+help: ; @echo $(if $(need-help),,Type \'$(MAKE)$(dash-f) help\' to get help)
+
+This rule will output nothing if the user has asked for help (determined by the need-help variable), but if not, it will output the message containing the name of the make program (stored in $(MAKE)) followed by the appropriate parameter to load the makefile. This last part is subtle.
+
+If the makefile that included help-system.mak was simply called Makefile (or makefile or GNUmakefile), then GNU make would look for it automatically, and it’s enough to type make help to get help. If it was not, the actual makefile name needs to be specified with the -f parameter.
+
+This rule uses a variable called dash-f to output the correct command line. dash-f contains nothing if one of the default makefile names was used, or it contains -f followed by the correct makefile name:
+
+dash-f := $(if $(filter-out Makefile makefile GNUmakefile, \
+$(parent-makefile)), -f $(parent-makefile))
+
+dash-f looks at the value of a variable called parent-makefile, which contains the name of the makefile that included help-system.mak. If it’s not a standard name, dash-f returns the name of the parent makefile with the -f option.
+
+parent-makefile is determined by looking at the MAKEFILE_LIST. MAKEFILE_LIST is a list of all the makefiles read so far in order. help-system.mak first determines its own name:
+
+this-makefile := $(call last-element,$(MAKEFILE_LIST))
+
+Then it gets the list of all the other makefiles included by removing this-makefile (that is, help-system.mak) from the MAKEFILE_LIST:
+
+other-makefiles := $(filter-out $(this-makefile),$(MAKEFILE_LIST))
+
+The final element of other-makefiles will be the parent of help-system.mak:
+
+parent-makefile := $(call last-element,$(other-makefiles))
+
+You use the last-element function to get the last element of a spaceseparated list:
+
+define last-element
+$(word $(words $1),$1)
+endef
+
+last-element returns the last word in a list by getting the word count using $(words) and returning the word referenced by it. Because GNU make’s lists are counted from position 1, $(words LIST) is the index of the last element.
+Documenting Makefiles with print-help
+
+Documenting makefiles with print-help is easy. Just add the relevant $(call print-help,target,description) to the prerequisite list for each target you want to document. If you add the call right next to the commands that are used for the target, the help system not only prints help but also automatically points the user to the place in the makefile to look for more information.
+
+It’s also easy to keep the documentation up to date because the description of a target is actually part of the definition of the target, not in a separate help list.
+The Complete help-system.mak
+
+Finally, here’s the full help_system.mak file:
+
+help: ; @echo $(if $(need-help),,Type \'$(MAKE)$(dash-f) help\' to get help)
+
+need-help := $(filter help,$(MAKECMDGOALS))
+
+define print-help
+$(if $(need-help),$(warning $1 -- $2))
+endef
+
+define last-element
+$(word $(words $1),$1)
+endef
+
+this-makefile := $(call last-element,$(MAKEFILE_LIST))
+other-makefiles := $(filter-out $(this-makefile),$(MAKEFILE_LIST))
+parent-makefile := $(call last-element,$(other-makefiles))
+
+dash-f := $(if $(filter-out Makefile makefile GNUmakefile, \
+$(parent-makefile)), -f $(parent-makefile))
+
+Just include help-system.mak to start using this system in makefiles that could use documentation.
+
+In Chapter 6, we’ll look at a helpful resource, the GMSL project. Creating GNU make built-in functions is easy, but it does cause a maintenance problem: the next time GNU make is updated, we’ll need to port our changes to the new version. If we can do what we need with GNU make built-ins without modifying the source, then makefiles will be more portable. The GMSL provides lots of additional functionality without modifying the GNU make source.
