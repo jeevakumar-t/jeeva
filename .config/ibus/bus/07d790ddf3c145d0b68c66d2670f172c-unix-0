@@ -3,5 +3,5 @@
 # ibus session bus with the below address.
 # If the IBUS_ADDRESS environment variable is set, it will
 # be used rather than this file.
-IBUS_ADDRESS=unix:path=/home/jeeva/.cache/ibus/dbus-dibOk9w2,guid=0646ba2e9011d6562b8ddc8a65b90e7c
-IBUS_DAEMON_PID=2109
+IBUS_ADDRESS=unix:path=/home/jeeva/.cache/ibus/dbus-S4yqB7Qr,guid=dd3c22c36bd71f2192ea13f165b9fc66
+IBUS_DAEMON_PID=2235

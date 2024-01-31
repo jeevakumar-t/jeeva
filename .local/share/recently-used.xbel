@@ -38,4 +38,15 @@
       </metadata>
     </info>
   </bookmark>
+  <bookmark href="file:///home/jeeva/githubpass.txt" added="2024-01-30T18:01:21.358604Z" modified="2024-01-30T18:01:21.361887Z" visited="2024-01-30T18:01:21.358606Z">
+    <info>
+      <metadata owner="http://freedesktop.org">
+        <mime:mime-type type="text/plain"/>
+        <bookmark:applications>
+          <bookmark:application name="snap.firefox" exec="&apos;gio open %u&apos;" modified="2024-01-30T18:01:21.358607Z" count="1"/>
+          <bookmark:application name="xdg-desktop-portal-gnome" exec="&apos;xdg-desktop-portal-gnome %u&apos;" modified="2024-01-30T18:01:21.361882Z" count="1"/>
+        </bookmark:applications>
+      </metadata>
+    </info>
+  </bookmark>
 </xbel>
